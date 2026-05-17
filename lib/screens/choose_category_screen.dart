@@ -14,8 +14,22 @@ class ChooseCategoryScreen extends StatefulWidget {
 }
 
 class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
-  String? _selected;
+  /// Ordre de sélection conservé pour les sections du devis.
+  final Set<String> _selected = <String>{};
   final _newCategoryController = TextEditingController();
+
+  /// `true` si on est en train de créer une **facture** directement
+  /// (le devis intermédiaire sera converti automatiquement à la sauvegarde).
+  bool _asInvoice = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final args = Get.arguments;
+    if (args is Map && args['asInvoice'] == true) {
+      _asInvoice = true;
+    }
+  }
 
   @override
   void dispose() {
@@ -23,31 +37,38 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
     super.dispose();
   }
 
+  void _toggleCategory(String cat) {
+    setState(() {
+      if (_selected.contains(cat)) {
+        _selected.remove(cat);
+      } else {
+        _selected.add(cat);
+      }
+    });
+  }
+
   void _onContinue() {
-    if (_selected == null || _selected!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Choisissez une catégorie'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-    Get.offNamed(AppRoutes.createDevis, arguments: [_selected!]);
+    if (_selected.isEmpty) return;
+    Get.toNamed(
+      AppRoutes.devisClientPrep,
+      arguments: {
+        'categories': _selected.toList(),
+        'asInvoice': _asInvoice,
+      },
+    );
   }
 
   Future<void> _addNewCategory(DesignationController dc, String t) async {
     if (t.isEmpty) return;
     final name = t.trim();
     if (dc.categories.any((c) => c.toLowerCase() == name.toLowerCase())) {
-      setState(
-        () => _selected = dc.categories.firstWhere(
-          (c) => c.toLowerCase() == name.toLowerCase(),
-        ),
+      final existing = dc.categories.firstWhere(
+        (c) => c.toLowerCase() == name.toLowerCase(),
       );
+      setState(() => _selected.add(existing));
     } else {
       await dc.addCategory(name);
-      setState(() => _selected = name);
+      setState(() => _selected.add(name));
     }
     _newCategoryController.clear();
   }
@@ -57,10 +78,11 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
     final dc = Get.find<DesignationController>();
     final r = context.responsive;
     final categories = dc.categories;
+    final canContinue = _selected.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Choisir la catégorie'),
+        title: Text(_asInvoice ? 'Catégorie · Facture' : 'Choisir la catégorie'),
         centerTitle: true,
         elevation: 0,
       ),
@@ -74,18 +96,20 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
           ),
           children: [
             Text(
-              'Choisissez une seule catégorie pour votre devis. Les désignations proposées seront celles de cette catégorie.',
+              _asInvoice
+                  ? 'Choisissez une ou plusieurs catégories pour votre facture. Les désignations proposées correspondront à ces catégories.'
+                  : 'Choisissez une ou plusieurs catégories pour votre devis. Les désignations proposées correspondront à ces catégories.',
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
             ),
             const SizedBox(height: 24),
             Text(
               'Catégories disponibles',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
             const SizedBox(height: 12),
             if (categories.isEmpty)
@@ -111,20 +135,19 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
               )
             else
               ...categories.map((cat) {
-                final isSelected = _selected == cat;
+                final isSelected = _selected.contains(cat);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Material(
                     color: isSelected
-                        ? Theme.of(
-                            context,
-                          ).colorScheme.primaryContainer.withOpacity(0.6)
+                        ? Theme.of(context)
+                            .colorScheme
+                            .primaryContainer
+                            .withValues(alpha: 0.6)
                         : Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(16),
                     child: InkWell(
-                      onTap: () {
-                        setState(() => _selected = cat);
-                      },
+                      onTap: () => _toggleCategory(cat),
                       borderRadius: BorderRadius.circular(16),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
@@ -135,8 +158,8 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
                           children: [
                             Icon(
                               isSelected
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_unchecked,
+                                  ? Icons.check_box
+                                  : Icons.check_box_outline_blank,
                               color: isSelected
                                   ? Theme.of(context).colorScheme.primary
                                   : Theme.of(context).colorScheme.outline,
@@ -160,9 +183,9 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
             Text(
               'Ajouter une catégorie',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
             const SizedBox(height: 8),
             Row(
@@ -196,7 +219,7 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
             12 + MediaQuery.of(context).padding.bottom,
           ),
           child: FilledButton(
-            onPressed: _onContinue,
+            onPressed: canContinue ? _onContinue : null,
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
@@ -204,9 +227,9 @@ class _ChooseCategoryScreenState extends State<ChooseCategoryScreen> {
               ),
             ),
             child: Text(
-              _selected != null
-                  ? 'Continuer avec « $_selected »'
-                  : 'Choisir une catégorie',
+              canContinue
+                  ? 'Suivant (${_selected.length} catégorie${_selected.length > 1 ? 's' : ''})'
+                  : 'Choisir au moins une catégorie',
             ),
           ),
         ),

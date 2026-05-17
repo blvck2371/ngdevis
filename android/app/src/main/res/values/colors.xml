@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Couleur de fond du splash Android natif — doit matcher #06060C du
+         splash Flutter pour éviter tout flash de couleur au lancement. -->
+    <color name="splashBackground">#FF06060C</color>
+</resources>

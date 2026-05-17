@@ -268,7 +268,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       final jsonStr = dc.exportJson();
       final bytes = utf8.encode(jsonStr);
       final fileName = 'categories_designations_${DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19)}.json';
-      final path = await FilePicker.platform.saveFile(
+      final path = await FilePicker.saveFile(
         dialogTitle: 'Exporter catégories et désignations (JSON)',
         fileName: fileName,
         type: FileType.custom,

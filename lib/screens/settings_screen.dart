@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/controllers/company_controller.dart';
+import '../core/theme/app_theme.dart';
+import '../core/utils/logo_file_helper.dart';
 import '../core/utils/app_routes.dart';
 import '../core/utils/responsive.dart';
+import '../core/widgets/app_bottom_nav.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -13,15 +16,21 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Get.find<CompanyController>();
     final r = context.responsive;
+    final bottomNavSpace = 92.0 + MediaQuery.paddingOf(context).bottom;
     return Scaffold(
-      appBar: AppBar(title: const Text('Paramètres entreprise')),
+      extendBody: true,
+      appBar: AppBar(
+        title: const Text('Paramètres entreprise'),
+        automaticallyImplyLeading: false,
+      ),
       body: SafeArea(
+        bottom: false,
         child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
             r.horizontalPadding,
             16,
             r.horizontalPadding,
-            24 + MediaQuery.of(context).padding.bottom,
+            24 + bottomNavSpace,
           ),
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: r.maxContentWidth),
@@ -68,7 +77,8 @@ class SettingsScreen extends StatelessWidget {
                             onPressed: () async {
                               final picker = await ImagePicker().pickImage(source: ImageSource.gallery);
                               if (picker != null) {
-                                c.setLogo(picker.path);
+                                final path = await LogoFileHelper.persistPickerImage(picker);
+                                c.setLogo(path);
                                 await c.save();
                               }
                             },
@@ -125,6 +135,31 @@ class SettingsScreen extends StatelessWidget {
                   onChanged: (v) => c.adresse.value = v,
                   onFieldSubmitted: (_) => c.save(),
                 ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  initialValue: c.slogan.value,
+                  decoration: const InputDecoration(
+                    labelText: 'Slogan (PDF, sous le logo)',
+                    hintText: 'Optionnel — une ligne sous le nom / logo sur le devis',
+                  ),
+                  onChanged: (v) => c.slogan.value = v,
+                  onFieldSubmitted: (_) => c.save(),
+                ),
+                SizedBox(height: r.sectionSpacing),
+                Text(
+                  'Documents',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                _SettingsTile(
+                  icon: Icons.tag_rounded,
+                  title: 'Numérotation',
+                  subtitle: 'Préfixe, année, reset annuel, padding',
+                  onTap: () => Get.toNamed(AppRoutes.numbering),
+                ),
                 SizedBox(height: r.sectionSpacing),
                 FilledButton.icon(
                   onPressed: () async {
@@ -162,6 +197,69 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ],
             )),
+          ),
+        ),
+      ),
+      bottomNavigationBar: const AppBottomNav(active: AppTab.settings),
+    );
+  }
+}
+
+/// Tuile cliquable réutilisable dans les sections de réglages.
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppColors.of(context);
+    return Material(
+      color: p.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: p.outlineSoft, width: 0.7),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: p.accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(icon, color: p.accent, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle,
+                      style: TextStyle(color: p.inkMuted, fontSize: 12.5),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: p.inkMuted),
+            ],
           ),
         ),
       ),

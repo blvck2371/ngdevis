@@ -6,6 +6,8 @@ class CompanyController extends GetxController {
   final telephone = ''.obs;
   final adresse = ''.obs;
   final logoPath = ''.obs;
+  /// Ligne optionnelle sous le logo / nom sur le PDF (ex. slogan).
+  final slogan = ''.obs;
 
   @override
   void onInit() {
@@ -19,6 +21,7 @@ class CompanyController extends GetxController {
     telephone.value = m['telephone'] ?? '';
     adresse.value = m['adresse'] ?? '';
     logoPath.value = m['logoPath'] ?? '';
+    slogan.value = m['slogan'] ?? '';
   }
 
   Future<void> save() async {
@@ -27,6 +30,7 @@ class CompanyController extends GetxController {
       'telephone': telephone.value,
       'adresse': adresse.value,
       'logoPath': logoPath.value,
+      'slogan': slogan.value,
     });
   }
 

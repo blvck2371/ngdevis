@@ -5,7 +5,11 @@ import 'package:uuid/uuid.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/controllers/designation_controller.dart';
 import '../core/models/designation.dart';
+import '../core/models/devis_unit.dart';
+import '../core/theme/app_theme.dart';
+import '../core/utils/app_currency.dart';
 import '../core/utils/responsive.dart';
+import '../core/widgets/app_bottom_nav.dart';
 
 const String _newCategoryValue = '__nouvelle_categorie__';
 
@@ -33,12 +37,14 @@ class _EditDesignationDialogState extends State<_EditDesignationDialog> {
   final _newCatC = TextEditingController();
   String? _selectedCategory;
   bool _showNewCategoryField = false;
+  String _uniteDefaut = DevisUnit.unite.code;
 
   @override
   void initState() {
     super.initState();
     _nomC.text = widget.designation?.nom ?? '';
     _puC.text = widget.designation?.prixUnitaire.toString() ?? '';
+    _uniteDefaut = DevisUnit.fromCode(widget.designation?.uniteDefaut).code;
     final dc = Get.find<DesignationController>();
     final categories = dc.categories;
     final cat = widget.designation == null ? null : widget.designation!.categorie.trim();
@@ -89,9 +95,19 @@ class _EditDesignationDialogState extends State<_EditDesignationDialog> {
         nom: nom,
         prixUnitaire: pu,
         categorie: cat,
+        uniteDefaut: _uniteDefaut,
       ));
     } else {
-      dc.updateAt(widget.index, Designation(id: widget.designation!.id, nom: nom, prixUnitaire: pu, categorie: cat));
+      dc.updateAt(
+        widget.index,
+        Designation(
+          id: widget.designation!.id,
+          nom: nom,
+          prixUnitaire: pu,
+          categorie: cat,
+          uniteDefaut: _uniteDefaut,
+        ),
+      );
     }
     if (mounted) Navigator.pop(context);
   }
@@ -120,10 +136,49 @@ class _EditDesignationDialogState extends State<_EditDesignationDialog> {
             TextField(
               controller: _puC,
               decoration: const InputDecoration(
-                labelText: 'Prix unitaire (F)',
+                labelText: 'Prix unitaire ($kCurrencyLabel)',
                 hintText: 'Ex: 6000',
               ),
               keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _uniteDefaut,
+              decoration: const InputDecoration(
+                labelText: 'Unité par défaut',
+                helperText: 'Pré-remplie à l’ajout d’une ligne de devis',
+              ),
+              isExpanded: true,
+              items: DevisUnit.all
+                  .map(
+                    (u) => DropdownMenuItem<String>(
+                      value: u.code,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 44,
+                            child: Text(
+                              u.symbole,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              u.label,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) {
+                if (v != null) setState(() => _uniteDefaut = v);
+              },
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -180,8 +235,10 @@ class DesignationsScreen extends StatelessWidget {
     final c = Get.find<DesignationController>();
     final r = context.responsive;
     return Scaffold(
+      extendBody: true,
       appBar: AppBar(
         title: const Text('Désignations'),
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.category_outlined),
@@ -201,22 +258,22 @@ class DesignationsScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             Padding(
               padding: EdgeInsets.fromLTRB(r.horizontalPadding, 12, r.horizontalPadding, 8),
               child: TextField(
                 decoration: InputDecoration(
-                  labelText: 'Rechercher',
-                  hintText: 'Nom ou catégorie…',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  hintText: 'Rechercher une désignation…',
+                  prefixIcon: Icon(Icons.search_rounded, color: AppColors.of(context).inkMuted),
                 ),
                 onChanged: (v) => c.searchQuery.value = v,
               ),
             ),
             Expanded(
               child: Obx(() {
+                final p = AppColors.of(context);
                 final list = c.filteredList.toList()
                   ..sort((a, b) => a.categorie.toLowerCase().compareTo(b.categorie.toLowerCase()));
                 if (list.isEmpty) {
@@ -226,21 +283,32 @@ class DesignationsScreen extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.inventory_2_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
-                          const SizedBox(height: 16),
+                          Container(
+                            width: 84,
+                            height: 84,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: p.accent.withValues(alpha: 0.12),
+                            ),
+                            child: Icon(Icons.inventory_2_rounded, size: 38, color: p.accent),
+                          ),
+                          const SizedBox(height: 18),
                           Text(
                             c.searchQuery.value.trim().isEmpty
                                 ? 'Aucune désignation'
                                 : 'Aucun résultat',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: p.ink,
+                                  fontWeight: FontWeight.w700,
+                                ),
                             textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
                           Text(
                             c.searchQuery.value.trim().isEmpty
                                 ? 'Importez un JSON ou ajoutez une désignation'
                                 : 'Modifiez la recherche',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: p.inkMuted),
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -255,13 +323,28 @@ class DesignationsScreen extends StatelessWidget {
                   if (d.categorie != prevCat) {
                     prevCat = d.categorie;
                     items.add(Padding(
-                      padding: const EdgeInsets.only(top: 16, bottom: 8),
-                      child: Text(
-                        prevCat,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w600,
+                      padding: const EdgeInsets.only(top: 18, bottom: 10),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              color: p.accent,
+                              borderRadius: BorderRadius.circular(99),
                             ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            prevCat.toUpperCase(),
+                            style: TextStyle(
+                              color: p.ink,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                        ],
                       ),
                     ));
                   }
@@ -273,7 +356,7 @@ class DesignationsScreen extends StatelessWidget {
                     r.horizontalPadding,
                     8,
                     r.horizontalPadding,
-                    80 + MediaQuery.of(context).padding.bottom,
+                    100 + MediaQuery.paddingOf(context).bottom,
                   ),
                   children: items,
                 );
@@ -283,7 +366,8 @@ class DesignationsScreen extends StatelessWidget {
         ),
       ),
       floatingActionButton: Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom),
+        // On remonte le FAB pour qu'il ne soit pas caché par la bottom nav.
+        padding: EdgeInsets.only(bottom: 76 + MediaQuery.paddingOf(context).bottom),
         child: FloatingActionButton.extended(
           onPressed: () => showEditDesignationDialog(context, null, -1),
           icon: const Icon(Icons.add),
@@ -291,6 +375,7 @@ class DesignationsScreen extends StatelessWidget {
           tooltip: 'Ajouter une désignation',
         ),
       ),
+      bottomNavigationBar: const AppBottomNav(active: AppTab.catalog),
     );
   }
 
@@ -336,7 +421,7 @@ class DesignationsScreen extends StatelessWidget {
       final bytes = utf8.encode(jsonStr);
       final fileName = 'designations_${DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19)}.json';
 
-      final path = await FilePicker.platform.saveFile(
+      final path = await FilePicker.saveFile(
         dialogTitle: 'Enregistrer les désignations (JSON)',
         fileName: fileName,
         type: FileType.custom,
@@ -400,6 +485,7 @@ class CategoryDesignationsScreen extends StatelessWidget {
       ),
       body: SafeArea(
         child: Obx(() {
+          final p = AppColors.of(context);
           final designations = c.list.where((d) => d.categorie == category).toList()
             ..sort((a, b) => a.nom.toLowerCase().compareTo(b.nom.toLowerCase()));
           if (designations.isEmpty) {
@@ -409,17 +495,28 @@ class CategoryDesignationsScreen extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.inventory_2_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
-                    const SizedBox(height: 16),
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: p.accent.withValues(alpha: 0.12),
+                      ),
+                      child: Icon(Icons.inventory_2_rounded, size: 38, color: p.accent),
+                    ),
+                    const SizedBox(height: 18),
                     Text(
                       'Aucune désignation dans « $category »',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: p.ink,
+                            fontWeight: FontWeight.w700,
+                          ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Text(
                       'Ajoutez-en une avec le bouton ci-dessous',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: p.inkMuted),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -464,45 +561,128 @@ class _DesignationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppColors.of(context);
+    final theme = Theme.of(context);
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(12),
+        color: p.surface,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: () => showEditDesignationDialog(context, designation, index),
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: p.outlineSoft, width: 1),
+            ),
+            child: Row(
+              children: [
+                // Icône container — violet accent
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        p.accent.withValues(alpha: 0.18),
+                        p.accent.withValues(alpha: 0.06),
+                      ],
+                    ),
+                  ),
+                  child: Icon(Icons.inventory_2_rounded, color: p.accent, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        designation.nom,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: p.ink,
+                          letterSpacing: -0.1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          // Prix unitaire → couleur **or** (cohérent avec
+                          // tous les montants affichés dans le dashboard).
+                          Text(
+                            '${_fmtPrice(designation.prixUnitaire)} $kCurrencyLabel',
+                            style: TextStyle(
+                              color: p.gold,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                          Text(
+                            '  ·  ',
+                            style: TextStyle(color: p.inkMuted, fontSize: 12),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: p.surfaceHigh,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              designation.unit.symbole,
+                              style: TextStyle(
+                                color: p.inkMuted,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.edit_outlined, color: p.inkMuted, size: 19),
+                  onPressed: () => showEditDesignationDialog(context, designation, index),
+                  tooltip: 'Modifier',
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete_outline_rounded, color: p.error.withValues(alpha: 0.85), size: 19),
+                  onPressed: () => _delete(context),
+                  tooltip: 'Supprimer',
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
           ),
-          child: Icon(Icons.inventory_2_outlined, color: Theme.of(context).colorScheme.primary, size: 22),
-        ),
-        title: Text(designation.nom),
-        subtitle: Text(
-          '${designation.prixUnitaire.toStringAsFixed(0)} F',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: () => showEditDesignationDialog(context, designation, index),
-              tooltip: 'Modifier',
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () => _delete(context),
-              tooltip: 'Supprimer',
-            ),
-          ],
         ),
       ),
-    ),
     );
+  }
+
+  static String _fmtPrice(double v) {
+    final s = v.toStringAsFixed(0);
+    if (s.length <= 3) return s;
+    final buf = StringBuffer();
+    var i = s.length % 3;
+    if (i == 0) i = 3;
+    buf.write(s.substring(0, i));
+    for (; i < s.length; i += 3) {
+      buf.write(' ${s.substring(i, i + 3)}');
+    }
+    return buf.toString();
   }
 
   void _delete(BuildContext context) {

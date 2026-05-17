@@ -2,16 +2,22 @@ import 'dart:convert';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/designation.dart';
+import '../models/devis_unit.dart';
 
 /// Import / export CSV des désignations.
-/// Format : nom,prixUnitaire,categorie
+/// Format : nom,prixUnitaire,categorie,unite
+///
+/// La colonne `unite` est optionnelle (rétrocompat avec les anciens exports).
+/// Codes acceptés : voir [DevisUnit.all] (`u`, `m`, `ml`, `kg`, `m2`, `m3`,
+/// `L`, `h`, `j`, `forfait`, …). Saisies humaines tolérées (`mètre carré`,
+/// `Litres`, …) via [DevisUnit.fromCode].
 class CsvService {
   static const utf8Bom = '\uFEFF';
 
   /// Importe un fichier CSV et retourne la liste des désignations.
-  /// Colonnes attendues : nom, prixUnitaire, categorie (ou prix_unitaire selon cas).
+  /// Colonnes attendues : nom, prixUnitaire, categorie, unite (la dernière étant optionnelle).
   static Future<List<Designation>> importFromFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv'],
       withData: true,
@@ -32,6 +38,7 @@ class CsvService {
     final nomIdx = _indexOf(header, ['nom', 'designation']);
     final puIdx = _indexOf(header, ['prixunitaire', 'prix_unitaire', 'pu', 'prix']);
     final catIdx = _indexOf(header, ['categorie', 'category', 'section']);
+    final uniteIdx = _indexOf(header, ['unitedefaut', 'unite_defaut', 'unite', 'unit', 'unité']);
     if (nomIdx < 0 || puIdx < 0) return [];
 
     final list = <Designation>[];
@@ -44,11 +51,15 @@ class CsvService {
       final categorie = catIdx >= 0 && row.length > catIdx
           ? (row[catIdx] ?? '').toString().trim()
           : '';
+      final uniteRaw = uniteIdx >= 0 && row.length > uniteIdx
+          ? (row[uniteIdx] ?? '').toString().trim()
+          : '';
       list.add(Designation(
         id: '${idPrefix}${DateTime.now().millisecondsSinceEpoch}_$i',
         nom: nom,
         prixUnitaire: pu,
         categorie: categorie.isEmpty ? '' : categorie,
+        uniteDefaut: uniteRaw.isEmpty ? null : uniteRaw,
       ));
     }
     return list;
@@ -69,10 +80,15 @@ class CsvService {
 
   /// Exporte la liste des désignations en CSV (UTF-8 avec BOM pour Excel).
   static String exportToCsv(List<Designation> list) {
-    const header = ['nom', 'prixUnitaire', 'categorie'];
+    const header = ['nom', 'prixUnitaire', 'categorie', 'unite'];
     final rows = [
       header,
-      ...list.map((d) => [d.nom, d.prixUnitaire.toString(), d.categorie]),
+      ...list.map((d) => [
+            d.nom,
+            d.prixUnitaire.toString(),
+            d.categorie,
+            d.uniteDefaut,
+          ]),
     ];
     return utf8Bom + const ListToCsvConverter().convert(rows);
   }

@@ -111,20 +111,38 @@ class DesignationController extends GetxController {
   }
 
   /// Retourne la désignation existante ou crée et sauvegarde une nouvelle en base.
-  /// Si une nouvelle désignation est créée, la catégorie est aussi enregistrée dans la liste des catégories.
+  /// Si une nouvelle désignation est créée, la catégorie est aussi enregistrée dans la liste des catégories,
+  /// et l'unité par défaut [uniteDefaut] est conservée pour les futures lignes.
   /// Retourne (désignation, true si nouvellement créée).
-  Future<(Designation, bool)> ensureDesignation(String nom, double prixUnitaire, [String? categorie]) async {
+  Future<(Designation, bool)> ensureDesignation(
+    String nom,
+    double prixUnitaire, [
+    String? categorie,
+    String? uniteDefaut,
+  ]) async {
     final n = nom.trim();
     final cat = (categorie ?? '').trim();
     if (n.isEmpty) {
-      final d = Designation(id: const Uuid().v4(), nom: 'Sans nom', prixUnitaire: prixUnitaire, categorie: cat);
+      final d = Designation(
+        id: const Uuid().v4(),
+        nom: 'Sans nom',
+        prixUnitaire: prixUnitaire,
+        categorie: cat,
+        uniteDefaut: uniteDefaut,
+      );
       await addCategory(cat);
       await add(d);
       return (d, true);
     }
     final existing = findByName(n);
     if (existing != null) return (existing, false);
-    final d = Designation(id: const Uuid().v4(), nom: n, prixUnitaire: prixUnitaire, categorie: cat);
+    final d = Designation(
+      id: const Uuid().v4(),
+      nom: n,
+      prixUnitaire: prixUnitaire,
+      categorie: cat,
+      uniteDefaut: uniteDefaut,
+    );
     await addCategory(cat);
     await add(d);
     return (d, true);
