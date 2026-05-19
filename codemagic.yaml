@@ -1,0 +1,82 @@
+# NG Devis — CI/CD Codemagic
+# Flux : push sur la branche `dev` → build AAB release → publication Play Store (piste **production**).
+#
+# Prérequis (console Codemagic : https://codemagic.io)
+# ─────────────────────────────────────────
+# 1) Code signing — Android :
+#    App settings → Code signing identities → téléverser votre keystore (même que pour vos builds locales).
+#    Dans la section YAML `environment.android_signing`, mettez le **même alias** que le nom donné dans l’UI
+#    (remplacez `ng_devis_release` ci‑dessous par votre alias).
+#
+# 2) Google Play — compte de service :
+#    Google Cloud Console : création d’un compte de service + clé JSON.
+#    Play Console → Setup → API access : lier le compte avec les droits de publication vers **Production**.
+#    Dans Codemagic : Environment variables (groupe conseillé `google_play`), ajoutez en **secret** :
+#      GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS = contenu complet du fichier JSON (ou suivre doc Codemagic).
+#
+# 3) Dans `environment.groups` ci‑dessous, le groupe doit inclure cette variable secret.
+#
+# ⚠️  Chaque soumission doit avoir un **versionCode** plus élevé que le précédent. Le script ci‑dessous utilise
+#     la dernière versionCode publiée sur la piste `production` puis +1. Si aucune release prod n’existe encore,
+#     complétez vous‑même une première mise en prod manuelle si Google l’exige, ou ajustez le fallback.
+#
+# ⚠️  Publier directement sur **production** à chaque push est risqué (régression utilisateur).
+#    Prévoir des garde‑fous (revue obligatoire, branche protégée, etc.) selon votre organisation.
+#
+workflows:
+  dev-to-play-production:
+    name: NG Devis Android → Play (production sur push dev)
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: dev
+          include: true
+          source: true
+
+    environment:
+      android_signing:
+        # Dans Codemagic : Code signing identities — nom exact du fichier de credentials Android.
+        - ng_devis_release
+      groups:
+        # Groupe Codemagic contenant GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS (voir commentaire en-tête).
+        - google_play
+      vars:
+        PACKAGE_NAME: "com.devisng.app"
+        GOOGLE_PLAY_TRACK: "production"
+      flutter: stable
+
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+
+      # Optionnel ; commentez ou mettez ignore_failure si vous préférez ne pas bloquer le déploiement.
+      - name: Static analysis
+        script: |
+          dart analyze lib
+        ignore_failure: true
+
+      - name: Build App Bundle (versionCode = dernière sur production + 1)
+        script: |
+          set -e
+          # Dernière versionCode sur la piste configurée ; 0 si échec (ex. aucune release sur cette piste encore).
+          LATEST=$(google-play get-latest-build-number \
+            --package-name "$PACKAGE_NAME" \
+            --tracks="$GOOGLE_PLAY_TRACK" 2>/dev/null || echo "0")
+          NEXT=$((LATEST + 1))
+          echo "Publishing with versionCode=$NEXT (previous on track: $LATEST)"
+          flutter build appbundle --release --build-number="$NEXT"
+
+    artifacts:
+      - build/**/outputs/**/*.aab
+      - flutter_drive.log
+
+    publishing:
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+        track: production
+        # false = mise en ligne sur la piste (pas uniquement draft). Respecte vos réglages de publication gérée Google Play.
+        submit_as_draft: false
