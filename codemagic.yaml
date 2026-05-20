@@ -31,6 +31,11 @@
 # ⚠️  Publier directement sur **production** à chaque push est risqué (régression utilisateur).
 #    Prévoir des garde‑fous (revue obligatoire, branche protégée, etc.) selon votre organisation.
 #
+# File d’attente (build « en queue » très long : le YAML n’en est en principe pas la cause) :
+#    • Compte gratuit / faible concurrency : attente d’un slot **mac_mini_m2** très fréquente.
+#    • Voir https://status.codemagic.io — annule les builds doublons ; un seul à la fois évite la file.
+#    • Augmenter concurrency / machines Linux (Android) = offres payantes selon la doc Codemagic actuelle.
+#
 # Cache CI (gain de temps, contournement partiel des timeouts réseau Flutter) :
 #    • Dans l’app Codemagic → onglet **Caching** / **Dependency caching** : activer le cache du workflow.
 #    • Chemins ci‑dessous : paquets Dart, Gradle, SDK Flutter ($HOME/programs/flutter).
