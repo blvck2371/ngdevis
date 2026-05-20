@@ -64,6 +64,8 @@ workflows:
       vars:
         PACKAGE_NAME: "com.devisng.app"
         GOOGLE_PLAY_TRACK: "production"
+        # Pistes où lire les versionCode déjà utilisés (évite collisions avec builds sur tests fermés / internes).
+        PLAY_VERSION_LOOKUP_TRACKS: "production,internal,beta,alpha"
       flutter: stable
 
     scripts:
@@ -85,15 +87,23 @@ workflows:
           fi
           echo "Keystore CI OK: $CM_KEYSTORE_PATH"
 
-      - name: Build App Bundle (versionCode = dernière sur production + 1)
+      - name: Build App Bundle (versionCode strictement supérieur à tout APK/AAB déjà sur Play)
         script: |
           set -e
-          # Dernière versionCode sur la piste configurée ; 0 si échec (ex. aucune release sur cette piste encore).
-          LATEST=$(google-play get-latest-build-number \
-            --package-name "$PACKAGE_NAME" \
-            --tracks="$GOOGLE_PLAY_TRACK" 2>/dev/null || echo "0")
-          NEXT=$((LATEST + 1))
-          echo "Publishing with versionCode=$NEXT (previous on track: $LATEST)"
+          latest=0
+          IFS=',' read -ra T <<< "${PLAY_VERSION_LOOKUP_TRACKS}"
+          for t in "${T[@]}"; do
+            t=$(echo "$t" | xargs)
+            [ -z "$t" ] && continue
+            n=$(google-play get-latest-build-number \
+              --package-name "$PACKAGE_NAME" \
+              --tracks="$t" 2>/dev/null || true)
+            if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt "$latest" ]; then
+              latest=$n
+            fi
+          done
+          NEXT=$((latest + 1))
+          echo "Max versionCode trouvé sur les pistes : $latest → build avec versionCode=$NEXT"
           flutter build appbundle --release --build-number="$NEXT"
 
     artifacts:
