@@ -128,11 +128,15 @@ workflows:
       - build/**/outputs/**/*.aab
       - flutter_drive.log
 
+    # Si l’upload réussit puis « Precondition check failed » sur la prod : ce n’est généralement PAS
+    # dû aux versions en tests fermés. Vérifie la Play Console (checklist, problèmes à corriger, première prod).
+    # Essai : passer submit_as_draft à true puis finaliser la release à la main dans la Console.
     publishing:
       google_play:
         credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
         track: production
-        # false = mise en ligne sur la piste (pas uniquement draft). Respecte vos réglages de publication gérée Google Play.
-        submit_as_draft: false
+        # true = brouillon sur la piste prod (finalisation possible dans Play Console) — évite souvent le blocage precondition.
+        # false = tentative de mise en ligne directe (nécessite que Google accepte toutes les conditions prod).
+        submit_as_draft: true
 
 
