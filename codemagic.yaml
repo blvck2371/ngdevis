@@ -31,11 +31,22 @@
 # ⚠️  Publier directement sur **production** à chaque push est risqué (régression utilisateur).
 #    Prévoir des garde‑fous (revue obligatoire, branche protégée, etc.) selon votre organisation.
 #
+# Cache CI (gain de temps, contournement partiel des timeouts réseau Flutter) :
+#    • Dans l’app Codemagic → onglet **Caching** / **Dependency caching** : activer le cache du workflow.
+#    • Chemins ci‑dessous : paquets Dart, Gradle, SDK Flutter ($HOME/programs/flutter).
+#    • Compte perso : limite **~3 Go** de cache — si dépassement, retire `programs/flutter` et ne garde que
+#      .pub-cache + .gradle/caches (le 1er build peut encore télécharger Flutter).
+#
 workflows:
   dev-to-play-production:
     name: NG Devis Android → Play (production sur push dev)
     instance_type: mac_mini_m2
     max_build_duration: 120
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
+        - $HOME/programs/flutter
     triggering:
       events:
         - push
