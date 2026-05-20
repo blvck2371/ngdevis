@@ -5,16 +5,24 @@
 # ─────────────────────────────────────────
 # 1) Code signing — Android :
 #    App settings → Code signing identities → téléverser votre keystore (même que pour vos builds locales).
-#    Dans la section YAML `environment.android_signing`, mettez le **même alias** que le nom donné dans l’UI
-#    (remplacez `ng_devis_release` ci‑dessous par votre alias).
+#    Dans la section YAML `environment.android_signing`, la valeur en liste doit être **identique** au
+#    champ « Identity name » / référence du keystore (ex. codemagic_keystore par défaut dans ce fichier).
 #
 # 2) Google Play — compte de service :
 #    Google Cloud Console : création d’un compte de service + clé JSON.
 #    Play Console → Setup → API access : lier le compte avec les droits de publication vers **Production**.
-#    Dans Codemagic : Environment variables (groupe conseillé `google_play`), ajoutez en **secret** :
-#      GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS = contenu complet du fichier JSON (ou suivre doc Codemagic).
 #
-# 3) Dans `environment.groups` ci‑dessous, le groupe doit inclure cette variable secret.
+#    Variables Codemagic — **au niveau de l’application NG Devis** :
+#    Les variables « globales » du compte personnel sont dépréciées / lecture seule.
+#    Dans **Application ngdevis → Environment variables**, Codemagic impose souvent un **groupe** :
+#      a) Crée un groupe (ex. nom exact : google_play).
+#      b) Ajoute une variable **secrète** dans ce groupe :
+#           Nom exact : GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+#           Valeur : tout le contenu du fichier JSON du compte de service Google Cloud (pas du base64 pour ça).
+#      c) Dans ce fichier YAML, la section `environment.groups` doit lister ce groupe (- google_play).
+#
+#    Note Codemagic sur le base64 : utile pour stocker des **fichiers binaires** dans une variable ;
+#    pour le JSON Play, colle en général le texte brut dans une variable secrète (pas besoin de base64).
 #
 # ⚠️  Chaque soumission doit avoir un **versionCode** plus élevé que le précédent. Le script ci‑dessous utilise
 #     la dernière versionCode publiée sur la piste `production` puis +1. Si aucune release prod n’existe encore,
@@ -38,10 +46,14 @@ workflows:
 
     environment:
       android_signing:
-        # Dans Codemagic : Code signing identities — nom exact du fichier de credentials Android.
-        - ng_devis_release
+        # ⚠️ Doit être le **Référence / Reference name** EXACT défini lors de l’ajout du keystore
+        # dans Codemagic : votre application → Settings → Code signing identities → Identity name.
+        # Si erreur « No keystores with reference … » → soit vous créez un keystore avec ce nom,
+        # soit vous remplacez la ligne suivante par le nom affiché dans l’interface (sans guillemets).
+        # Exemple officiel Codemagic : codemagic_keystore
+        - codemagic_keystore
       groups:
-        # Groupe Codemagic contenant GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS (voir commentaire en-tête).
+        # Doit être le **même nom** que le groupe créé dans App → Environment variables (ex. google_play).
         - google_play
       vars:
         PACKAGE_NAME: "com.devisng.app"
