@@ -6,7 +6,7 @@
 # 1) Code signing — Android :
 #    App settings → Code signing identities → téléverser votre keystore (même que pour vos builds locales).
 #    Dans la section YAML `environment.android_signing`, la valeur en liste doit être **identique** au
-#    champ « Identity name » / référence du keystore (ex. codemagic_keystore par défaut dans ce fichier).
+#    champ « Identity name » / référence du keystore (doit être identique à la liste ci‑dessous ; ex. ngdevis).
 #
 # 2) Google Play — compte de service :
 #    Google Cloud Console : création d’un compte de service + clé JSON.
@@ -46,12 +46,8 @@ workflows:
 
     environment:
       android_signing:
-        # ⚠️ Doit être le **Référence / Reference name** EXACT défini lors de l’ajout du keystore
-        # dans Codemagic : votre application → Settings → Code signing identities → Identity name.
-        # Si erreur « No keystores with reference … » → soit vous créez un keystore avec ce nom,
-        # soit vous remplacez la ligne suivante par le nom affiché dans l’interface (sans guillemets).
-        # Exemple officiel Codemagic : codemagic_keystore
-        - codemagic_keystore
+        # ⚠️ Identique au nom dans Codemagic → Code signing identities (chez toi : ngdevis).
+        - ngdevis
       groups:
         # Doit être le **même nom** que le groupe créé dans App → Environment variables (ex. google_play).
         - google_play
