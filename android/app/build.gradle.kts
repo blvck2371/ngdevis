@@ -23,6 +23,17 @@ val hasReleaseKeystore =
         releaseKeystoreFile != null &&
         releaseKeystoreFile.isFile
 
+// CI Codemagic : identité Android « ngdevis » → CM_KEYSTORE_*, sinon la release retombe en debug → Play rejette le .aab
+val cmKeystorePath = System.getenv("CM_KEYSTORE_PATH") ?: ""
+val cmStorePwd = System.getenv("CM_KEYSTORE_PASSWORD")
+val cmKeyAlias = System.getenv("CM_KEY_ALIAS")
+val cmKeyPwd = System.getenv("CM_KEY_PASSWORD")
+val codemagicReleaseSigning =
+    cmKeystorePath.isNotBlank() &&
+        !cmStorePwd.isNullOrBlank() &&
+        !cmKeyAlias.isNullOrBlank() &&
+        !cmKeyPwd.isNullOrBlank()
+
 android {
     namespace = "com.devisng.app"
     compileSdk = flutter.compileSdkVersion
@@ -47,13 +58,19 @@ android {
     }
 
     signingConfigs {
-        // Uniquement si le fichier .jks existe (sinon la release est signée en debug pour permettre le build).
         if (hasReleaseKeystore) {
             create("release") {
                 keyAlias = keystoreProperties.getProperty("keyAlias")!!
                 keyPassword = keystoreProperties.getProperty("keyPassword")!!
                 storePassword = keystoreProperties.getProperty("storePassword")!!
                 storeFile = releaseKeystoreFile!!
+            }
+        } else if (codemagicReleaseSigning) {
+            create("release") {
+                storeFile = file(cmKeystorePath)
+                storePassword = cmStorePwd
+                keyAlias = cmKeyAlias
+                keyPassword = cmKeyPwd
             }
         }
     }

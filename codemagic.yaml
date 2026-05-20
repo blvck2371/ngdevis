@@ -5,8 +5,7 @@
 # ─────────────────────────────────────────
 # 1) Code signing — Android :
 #    App settings → Code signing identities → téléverser votre keystore (même que pour vos builds locales).
-#    Dans la section YAML `environment.android_signing`, la valeur en liste doit être **identique** au
-#    champ « Identity name » / référence du keystore (doit être identique à la liste ci‑dessous ; ex. ngdevis).
+#    L’identité Android injecte CM_KEYSTORE_* ; android/app/build.gradle.kts les utilise si key.properties est absent.
 #
 # 2) Google Play — compte de service :
 #    Google Cloud Console : création d’un compte de service + clé JSON.
@@ -77,6 +76,14 @@ workflows:
         script: |
           dart analyze lib
         ignore_failure: true
+
+      - name: Vérifier keystore release Codemagic (sinon AAB signé en debug → Play refuse)
+        script: |
+          if [ -z "$CM_KEYSTORE_PATH" ] || [ ! -f "$CM_KEYSTORE_PATH" ]; then
+            echo "Erreur: CM_KEYSTORE_PATH absent ou fichier introuvable. Vérifie android_signing → ngdevis dans le YAML."
+            exit 1
+          fi
+          echo "Keystore CI OK: $CM_KEYSTORE_PATH"
 
       - name: Build App Bundle (versionCode = dernière sur production + 1)
         script: |
