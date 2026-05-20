@@ -67,9 +67,9 @@ workflows:
         GOOGLE_PLAY_TRACK: "production"
         # Pistes standards ; ajoute PLAY_EXTRA_TRACKS si tu as des pistes personnalisées (Play Console).
         PLAY_VERSION_LOOKUP_TRACKS: "production,internal,beta,alpha"
-        # Si l’erreur revient même avec un pubspec.+N récent, mets ici strictement (> max vue sur Play), ex. 20.
-        PLAY_MIN_NEXT_VERSION_CODE: ""
-        PLAY_EXTRA_TRACKS: ""
+        # Optionnel — ne pas mettre de clé vide ici (erreur validation Codemagic). Pour forcer un versionCode
+        # minimum ou des pistes extra, ajoute PLAY_MIN_NEXT_VERSION_CODE ou PLAY_EXTRA_TRACKS dans
+        # Application → Environment variables / groupe du workflow (le script les lit si présentes).
       flutter: stable
 
     scripts:
