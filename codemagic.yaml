@@ -23,9 +23,10 @@
 #    Note Codemagic sur le base64 : utile pour stocker des **fichiers binaires** dans une variable ;
 #    pour le JSON Play, colle en général le texte brut dans une variable secrète (pas besoin de base64).
 #
-# ⚠️  Chaque soumission doit avoir un **versionCode** plus élevé que le précédent. Le script ci‑dessous utilise
-#     la dernière versionCode publiée sur la piste `production` puis +1. Si aucune release prod n’existe encore,
-#     complétez vous‑même une première mise en prod manuelle si Google l’exige, ou ajustez le fallback.
+# ⚠️  versionCode : le bundle doit être **strictement supérieur** à tout code déjà utilisé sur Play (toutes pistes).
+#     Le script lit Google Play sur plusieurs pistes + le +N de pubspec.yaml. Si l’API retourne un max trop bas
+#     (cas fréquent), définis PLAY_MIN_NEXT_VERSION_CODE (dans ce YAML ou en variable d’app Codemagic), ex. 10.
+#     Optionnel : PLAY_EXTRA_TRACKS pour d’autres noms de pistes (séparés par des virgules).
 #
 # ⚠️  Publier directement sur **production** à chaque push est risqué (régression utilisateur).
 #    Prévoir des garde‑fous (revue obligatoire, branche protégée, etc.) selon votre organisation.
@@ -64,8 +65,11 @@ workflows:
       vars:
         PACKAGE_NAME: "com.devisng.app"
         GOOGLE_PLAY_TRACK: "production"
-        # Pistes où lire les versionCode déjà utilisés (évite collisions avec builds sur tests fermés / internes).
+        # Pistes standards ; ajoute PLAY_EXTRA_TRACKS si tu as des pistes personnalisées (Play Console).
         PLAY_VERSION_LOOKUP_TRACKS: "production,internal,beta,alpha"
+        # Si l’erreur revient même avec un pubspec.+N récent, mets ici strictement (> max vue sur Play), ex. 20.
+        PLAY_MIN_NEXT_VERSION_CODE: ""
+        PLAY_EXTRA_TRACKS: ""
       flutter: stable
 
     scripts:
@@ -87,11 +91,17 @@ workflows:
           fi
           echo "Keystore CI OK: $CM_KEYSTORE_PATH"
 
-      - name: Build App Bundle (versionCode strictement supérieur à tout APK/AAB déjà sur Play)
+      - name: Build App Bundle (versionCode = max(Play API, pubspec +N) + 1, optionnel plancher)
         script: |
           set -e
+          spec_build=$(grep -m1 '^version:' pubspec.yaml | sed -n 's/.*+\([0-9][0-9]*\).*$/\1/p')
+          spec_build=${spec_build:-0}
           latest=0
-          IFS=',' read -ra T <<< "${PLAY_VERSION_LOOKUP_TRACKS}"
+          TRACKS="${PLAY_VERSION_LOOKUP_TRACKS}"
+          if [ -n "${PLAY_EXTRA_TRACKS:-}" ]; then
+            TRACKS="${TRACKS},${PLAY_EXTRA_TRACKS}"
+          fi
+          IFS=',' read -ra T <<< "${TRACKS}"
           for t in "${T[@]}"; do
             t=$(echo "$t" | xargs)
             [ -z "$t" ] && continue
@@ -102,8 +112,16 @@ workflows:
               latest=$n
             fi
           done
-          NEXT=$((latest + 1))
-          echo "Max versionCode trouvé sur les pistes : $latest → build avec versionCode=$NEXT"
+          combined=$latest
+          if [ "$spec_build" -gt "$combined" ]; then
+            combined=$spec_build
+          fi
+          NEXT=$((combined + 1))
+          if [[ "${PLAY_MIN_NEXT_VERSION_CODE:-}" =~ ^[0-9]+$ ]] && [ "$NEXT" -lt "$PLAY_MIN_NEXT_VERSION_CODE" ]; then
+            echo "NEXT $NEXT < PLAY_MIN_NEXT_VERSION_CODE $PLAY_MIN_NEXT_VERSION_CODE — on applique le plancher."
+            NEXT=$PLAY_MIN_NEXT_VERSION_CODE
+          fi
+          echo "versionCode: API max=$latest, pubspec+=$spec_build → combined=$combined → build avec versionCode=$NEXT"
           flutter build appbundle --release --build-number="$NEXT"
 
     artifacts:
