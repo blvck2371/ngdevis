@@ -1,5 +1,6 @@
 # NG Devis — CI/CD Codemagic
-# Flux : push sur la branche `dev` → build AAB release → publication Play Store (piste **production**).
+# Flux : push sur `dev` → build AAB release → publication Play (piste GOOGLE_PLAY_TRACK, défaut **alpha** = test fermé).
+# Tant que Google n’a pas validé l’accès production (14 j testeurs), la piste **production** renvoie « Precondition check failed ».
 #
 # Prérequis (console Codemagic : https://codemagic.io)
 # ─────────────────────────────────────────
@@ -44,7 +45,7 @@
 #
 workflows:
   dev-to-play-production:
-    name: NG Devis Android → Play (production sur push dev)
+    name: NG Devis Android → Play (push dev)
     instance_type: mac_mini_m2
     max_build_duration: 120
     cache:
@@ -69,7 +70,8 @@ workflows:
         - google_play
       vars:
         PACKAGE_NAME: "com.devisng.app"
-        GOOGLE_PLAY_TRACK: "production"
+        # alpha = test fermé (API Play). Passe à "production" quand l’accès prod est accordé dans la Console.
+        GOOGLE_PLAY_TRACK: "alpha"
         # Pistes standards ; ajoute PLAY_EXTRA_TRACKS si tu as des pistes personnalisées (Play Console).
         PLAY_VERSION_LOOKUP_TRACKS: "production,internal,beta,alpha"
         # Optionnel — ne pas mettre de clé vide ici (erreur validation Codemagic). Pour forcer un versionCode
@@ -85,8 +87,7 @@ workflows:
       # Optionnel ; commentez ou mettez ignore_failure si vous préférez ne pas bloquer le déploiement.
       - name: Static analysis
         script: |
-          dart analyze lib
-        ignore_failure: true
+          dart analyze lib --no-fatal-warnings --no-fatal-infos
 
       - name: Vérifier keystore release Codemagic (sinon AAB signé en debug → Play refuse)
         script: |
@@ -139,9 +140,7 @@ workflows:
     publishing:
       google_play:
         credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
-        track: production
-        # true = brouillon sur la piste prod (finalisation possible dans Play Console) — évite souvent le blocage precondition.
-        # false = tentative de mise en ligne directe (nécessite que Google accepte toutes les conditions prod).
+        track: $GOOGLE_PLAY_TRACK
         submit_as_draft: true
 
 

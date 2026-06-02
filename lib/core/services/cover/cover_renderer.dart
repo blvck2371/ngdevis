@@ -488,14 +488,7 @@ class _OrientalOrange {
     /// Zone utile plaque dorée **droite** (calée sur le PNG).
     /// DEVIS/FACTURE : ancré au **bord droit réel de la plaque** (coords page),
     /// sans Row/Expanded — le moteur pdf est ainsi stable quel que soit le texte.
-    const plaqueLeft = 598.0;
-    const plaqueTop = 44.0;
     const plaqueW = 418.0;
-    const plaqueDocInsetRight = 34.0;
-
-    /// Réserve verticale pour la société (jusqu’à 2 lignes), coordonnées gabarit.
-    const plaqueCompanyReservePx = 72.0;
-    const plaqueDocBannerGapPx = 40.0;
 
     /// Zone logo plaque dorée (px gabarit 1055×1491). Plus grand = logo affiché plus grand (BoxFit.contain).
     const plaqueLogoSlotPx = 230.0;
@@ -503,9 +496,7 @@ class _OrientalOrange {
 
     const refWidth = 360.0;
 
-    /// Objet — champ blanc central-gauche (+10 px vers la droite vs gabarit d’origine).
-    const objLeft = 118.0;
-    const objTop = 458.0;
+    /// Objet — champ blanc central-gauche (largeur utile).
     const objWidth = 490.0;
 
     /// Bloc infos client (largeur utile).
@@ -519,22 +510,6 @@ class _OrientalOrange {
     final ptRef = _textPt(layoutScale, 11.5);
     final ptObjLbl = _textPt(layoutScale, 9);
     final ptObj = _textPt(layoutScale, 12);
-
-    var plaqueDocBannerDyPx = plaqueDocBannerGapPx;
-    if (logo != null) {
-      plaqueDocBannerDyPx += plaqueLogoSlotPx + plaqueLogoBelowGapPx;
-    }
-    if (data.companyName.trim().isNotEmpty) {
-      plaqueDocBannerDyPx += plaqueCompanyReservePx;
-    }
-    final docBannerTop = oy + (plaqueTop + plaqueDocBannerDyPx) * layoutScale;
-
-    /// Bord droit de la plaque sur la page PDF (après mise à l’échelle « contain »).
-    final plaqueRightPageX = ox + (plaqueLeft + plaqueW) * layoutScale;
-
-    /// Distance stack-droite → bord droit du bloc titre (même inset que le gabarit PNG).
-    final docBannerRightFromStackEdge =
-        w - plaqueRightPageX + plaqueDocInsetRight * layoutScale;
 
     pw.Widget plaqueDocBannerColumn() => pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.end,

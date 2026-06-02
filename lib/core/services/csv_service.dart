@@ -34,7 +34,7 @@ class CsvService {
     const idPrefix = 'csv_';
     final rows = const CsvToListConverter().convert(content);
     if (rows.isEmpty) return [];
-    final header = (rows.first as List<dynamic>).map((e) => (e ?? '').toString().trim().toLowerCase()).toList();
+    final header = rows.first.map((e) => (e ?? '').toString().trim().toLowerCase()).toList();
     final nomIdx = _indexOf(header, ['nom', 'designation']);
     final puIdx = _indexOf(header, ['prixunitaire', 'prix_unitaire', 'pu', 'prix']);
     final catIdx = _indexOf(header, ['categorie', 'category', 'section']);
@@ -43,7 +43,7 @@ class CsvService {
 
     final list = <Designation>[];
     for (var i = 1; i < rows.length; i++) {
-      final row = rows[i] as List<dynamic>;
+      final row = rows[i];
       if (row.length <= nomIdx || row.length <= puIdx) continue;
       final nom = (row[nomIdx] ?? '').toString().trim();
       if (nom.isEmpty) continue;
@@ -55,7 +55,7 @@ class CsvService {
           ? (row[uniteIdx] ?? '').toString().trim()
           : '';
       list.add(Designation(
-        id: '${idPrefix}${DateTime.now().millisecondsSinceEpoch}_$i',
+        id: '$idPrefix${DateTime.now().millisecondsSinceEpoch}_$i',
         nom: nom,
         prixUnitaire: pu,
         categorie: categorie.isEmpty ? '' : categorie,
