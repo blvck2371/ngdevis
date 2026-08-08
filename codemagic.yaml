@@ -87,7 +87,7 @@ workflows:
       # Optionnel ; commentez ou mettez ignore_failure si vous préférez ne pas bloquer le déploiement.
       - name: Static analysis
         script: |
-          dart analyze lib --no-fatal-warnings --no-fatal-infos
+          dart analyze lib --no-fatal-warnings
 
       - name: Vérifier keystore release Codemagic (sinon AAB signé en debug → Play refuse)
         script: |
