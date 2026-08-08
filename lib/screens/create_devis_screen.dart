@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -16,6 +17,36 @@ import '../core/utils/app_currency.dart';
 import '../core/utils/app_routes.dart';
 import '../core/utils/responsive.dart';
 import 'cover_picker_sheet.dart';
+
+/// Clavier adapté aux entiers et décimales (virgule ou point).
+const _kDecimalKeyboard = TextInputType.numberWithOptions(decimal: true);
+
+final List<TextInputFormatter> _kDecimalInputFormatters = [
+  FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+  TextInputFormatter.withFunction((oldValue, newValue) {
+    final text = newValue.text;
+    final separators = RegExp(r'[.,]').allMatches(text).length;
+    if (separators > 1) return oldValue;
+    return newValue;
+  }),
+];
+
+double? _parseDecimalInput(String raw) {
+  final t = raw.trim().replaceAll(',', '.');
+  if (t.isEmpty || t == '.') return null;
+  return double.tryParse(t);
+}
+
+/// Affiche `12` plutôt que `12.0` dans les champs de saisie.
+String _formatDecimalForInput(double value) {
+  if (value == value.roundToDouble()) return value.toInt().toString();
+  var s = value.toString();
+  if (s.contains('.')) {
+    s = s.replaceFirst(RegExp(r'0+$'), '');
+    if (s.endsWith('.')) s = s.substring(0, s.length - 1);
+  }
+  return s;
+}
 
 class CreateDevisScreen extends StatelessWidget {
   const CreateDevisScreen({super.key});
@@ -68,27 +99,12 @@ class CreateDevisScreen extends StatelessWidget {
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).padding.bottom,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  FloatingActionButton.extended(
-                    heroTag: 'add_section',
-                    onPressed: () => c.addSection(),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Ajouter une section'),
-                    tooltip: 'Ajouter une section au devis',
-                  ),
-                  const SizedBox(height: 12),
-                  FloatingActionButton.extended(
-                    heroTag: 'preview_pdf',
-                    onPressed: () => _pickAndPreviewDevis(context, c),
-                    icon: const Icon(Icons.picture_as_pdf),
-                    label: const Text('Aperçu PDF'),
-                    tooltip:
-                        'Choisir un modèle puis enregistrer et prévisualiser',
-                  ),
-                ],
+              child: _DevisActionFabs(
+                onAddSection: () => c.addSection(),
+                onPreviewPdf: () => _pickAndPreviewDevis(context, c),
+                showAddSection: true,
+                addSectionHeroTag: 'add_section',
+                previewHeroTag: 'preview_pdf',
               ),
             )
           : null,
@@ -125,7 +141,10 @@ class CreateDevisScreen extends StatelessWidget {
           return;
         }
         Get.offNamedUntil(AppRoutes.dashboard, (route) => false);
-        Get.toNamed(AppRoutes.factureDetail, arguments: facture.id);
+        Get.toNamed(
+          AppRoutes.factureDetail,
+          arguments: {'factureId': facture.id},
+        );
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -254,16 +273,13 @@ class CreateDevisScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Expanded(
-                    child: Obx(() {
-                      final preview = _buildPdfPreviewTable(context, c);
-                      return SingleChildScrollView(
-                        padding: EdgeInsets.only(
-                          right: r.horizontalPadding,
-                          bottom: 24,
-                        ),
-                        child: preview,
-                      );
-                    }),
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.only(
+                        right: r.horizontalPadding,
+                        bottom: 24,
+                      ),
+                      child: _EditablePdfPreview(controller: c),
+                    ),
                   ),
                 ],
               ),
@@ -321,7 +337,7 @@ class CreateDevisScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Obx(() => _buildPdfPreviewTable(context, c)),
+            _EditablePdfPreview(controller: c),
             SizedBox(height: r.sectionSpacing),
             Obx(() => _buildTotal(context, c)),
           ],
@@ -475,6 +491,27 @@ class CreateDevisScreen extends StatelessWidget {
     try {
       final devis = await JsonService.pickDevisJsonFile();
       if (devis == null) return;
+      if (!context.mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Importer ce devis ?'),
+          content: Text(
+            'Le contenu actuel sera remplacé par le devis n° ${devis.numero}.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Importer'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
       c.initForEdit(devis);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -851,146 +888,6 @@ class CreateDevisScreen extends StatelessWidget {
     );
   }
 
-  /// Aperçu sous forme de tableau de ce qui sera affiché dans le PDF.
-  Widget _buildPdfPreviewTable(BuildContext context, CreateDevisController c) {
-    if (c.sections.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(
-                Icons.picture_as_pdf_outlined,
-                color: Theme.of(context).colorScheme.outline,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Aperçu du PDF',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Ajoutez des sections et des lignes pour voir l’aperçu.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.picture_as_pdf_outlined,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Aperçu du PDF',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ...c.sections.asMap().entries.map((entry) {
-              final i = entry.key;
-              final section = entry.value;
-              final titreSection = section.titre.trim().isEmpty
-                  ? 'Section ${i + 1}'
-                  : section.titre.toUpperCase();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      titreSection,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingRowColor: WidgetStateProperty.all(
-                          theme.colorScheme.surfaceContainerHighest,
-                        ),
-                        columns: const [
-                          DataColumn(label: Text('Désignation')),
-                          DataColumn(label: Text('Qte'), numeric: true),
-                          DataColumn(label: Text('PU'), numeric: true),
-                          DataColumn(label: Text('PT'), numeric: true),
-                        ],
-                        rows: [
-                          ...section.items.map(
-                            (item) => DataRow(
-                              cells: [
-                                DataCell(Text(item.designation)),
-                                DataCell(Text(DevisUnit.formatQuantity(item.unit, item.quantite))),
-                                DataCell(Text('${_formatPrice(item.prixUnitaire)} $kCurrencyLabel')),
-                                DataCell(Text('${_formatPrice(item.total)} $kCurrencyLabel')),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        'TOTAL MATERIELLE ${_formatPrice(section.totalMateriel)} $kCurrencyLabel',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.error,
-                        ),
-                      ),
-                    ),
-                    if (section.mainOeuvre > 0) ...[
-                      const SizedBox(height: 2),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          "MAIN D'OEUVRE ${_formatPrice(section.mainOeuvre)} $kCurrencyLabel",
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 2),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        'TOTAL $titreSection ${_formatPrice(section.totalSection)} $kCurrencyLabel',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.error,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
   static String _formatPrice(double v) => v.toStringAsFixed(0);
 
   /// Espaces milliers — affichage UI (évite les chaînes trop longues sur mobile).
@@ -1043,7 +940,7 @@ class CreateDevisScreen extends StatelessWidget {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: "Main d'oeuvre manuelle",
                   hintText: 'Saisir un montant',
                   suffixText: kCurrencyLabel,
@@ -1509,6 +1406,540 @@ class CreateDevisScreen extends StatelessWidget {
   }
 }
 
+/// Aperçu PDF : lignes en lecture seule ; double-tap pour éditer une seule ligne.
+class _EditablePdfPreview extends StatefulWidget {
+  final CreateDevisController controller;
+
+  const _EditablePdfPreview({required this.controller});
+
+  @override
+  State<_EditablePdfPreview> createState() => _EditablePdfPreviewState();
+}
+
+class _EditablePdfPreviewState extends State<_EditablePdfPreview> {
+  int? _editSection;
+  int? _editItem;
+
+  void _startEdit(int sectionIndex, int itemIndex) {
+    setState(() {
+      _editSection = sectionIndex;
+      _editItem = itemIndex;
+    });
+  }
+
+  void _stopEdit() {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _editSection = null;
+      _editItem = null;
+    });
+  }
+
+  bool _isEditing(int sectionIndex, int itemIndex) =>
+      _editSection == sectionIndex && _editItem == itemIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final c = widget.controller;
+      if (c.sections.isEmpty) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.picture_as_pdf_outlined,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Ajoutez des sections et des lignes pour voir l’aperçu.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      // Si la ligne éditée a disparu, sortir du mode édition.
+      if (_editSection != null && _editItem != null) {
+        final s = _editSection!;
+        final i = _editItem!;
+        if (s < 0 ||
+            s >= c.sections.length ||
+            i < 0 ||
+            i >= c.sections[s].items.length) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _stopEdit();
+          });
+        }
+      }
+
+      final theme = Theme.of(context);
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.picture_as_pdf_outlined,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Aperçu du PDF',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Double-tapez une ligne pour la modifier. Les autres restent en aperçu.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...c.sections.asMap().entries.map((entry) {
+                final sectionIndex = entry.key;
+                final section = entry.value;
+                final titreSection = section.titre.trim().isEmpty
+                    ? 'Section ${sectionIndex + 1}'
+                    : section.titre.toUpperCase();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        titreSection,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              flex: 4,
+                              child: Text(
+                                'Désignation',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 48,
+                              child: Text(
+                                'Qte',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 64,
+                              child: Text(
+                                'PU',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 72,
+                              child: Text(
+                                'PT',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (section.items.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Text(
+                            'Aucune ligne dans cette section.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                        )
+                      else
+                        ...section.items.asMap().entries.map((itemEntry) {
+                          final itemIndex = itemEntry.key;
+                          final item = itemEntry.value;
+                          final editing = _isEditing(sectionIndex, itemIndex);
+                          return _PreviewLineTile(
+                            key: ValueKey('preview-$sectionIndex-$itemIndex'),
+                            controller: c,
+                            sectionIndex: sectionIndex,
+                            itemIndex: itemIndex,
+                            item: item,
+                            editing: editing,
+                            onDoubleTap: () =>
+                                _startEdit(sectionIndex, itemIndex),
+                            onDone: _stopEdit,
+                          );
+                        }),
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          'TOTAL MATERIELLE ${CreateDevisScreen._formatPrice(section.totalMateriel)} $kCurrencyLabel',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.error,
+                          ),
+                        ),
+                      ),
+                      if (section.mainOeuvre > 0) ...[
+                        const SizedBox(height: 2),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            "MAIN D'OEUVRE ${CreateDevisScreen._formatPrice(section.mainOeuvre)} $kCurrencyLabel",
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 2),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          'TOTAL $titreSection ${CreateDevisScreen._formatPrice(section.totalSection)} $kCurrencyLabel',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.error,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+}
+
+/// Ligne d’aperçu : affichage normal, ou champs éditables après double-tap.
+class _PreviewLineTile extends StatefulWidget {
+  final CreateDevisController controller;
+  final int sectionIndex;
+  final int itemIndex;
+  final DevisItem item;
+  final bool editing;
+  final VoidCallback onDoubleTap;
+  final VoidCallback onDone;
+
+  const _PreviewLineTile({
+    super.key,
+    required this.controller,
+    required this.sectionIndex,
+    required this.itemIndex,
+    required this.item,
+    required this.editing,
+    required this.onDoubleTap,
+    required this.onDone,
+  });
+
+  @override
+  State<_PreviewLineTile> createState() => _PreviewLineTileState();
+}
+
+class _PreviewLineTileState extends State<_PreviewLineTile> {
+  late TextEditingController _designationCtrl;
+  late TextEditingController _quantiteCtrl;
+  late TextEditingController _prixCtrl;
+  final _designationFocus = FocusNode();
+  final _quantiteFocus = FocusNode();
+  final _prixFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _syncControllersFromItem();
+    if (widget.editing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _designationFocus.requestFocus();
+      });
+    }
+  }
+
+  void _syncControllersFromItem() {
+    _designationCtrl =
+        TextEditingController(text: widget.item.designation);
+    _quantiteCtrl = TextEditingController(
+      text: _formatDecimalForInput(widget.item.quantite),
+    );
+    _prixCtrl = TextEditingController(
+      text: _formatDecimalForInput(widget.item.prixUnitaire),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _PreviewLineTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.editing) return;
+    if (!oldWidget.editing && widget.editing) {
+      _designationCtrl.text = widget.item.designation;
+      _quantiteCtrl.text = _formatDecimalForInput(widget.item.quantite);
+      _prixCtrl.text = _formatDecimalForInput(widget.item.prixUnitaire);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _designationFocus.requestFocus();
+      });
+      return;
+    }
+    if (!_designationFocus.hasFocus &&
+        oldWidget.item.designation != widget.item.designation &&
+        _designationCtrl.text != widget.item.designation) {
+      _designationCtrl.text = widget.item.designation;
+    }
+    final qText = _formatDecimalForInput(widget.item.quantite);
+    if (!_quantiteFocus.hasFocus &&
+        oldWidget.item.quantite != widget.item.quantite &&
+        _quantiteCtrl.text != qText) {
+      _quantiteCtrl.text = qText;
+    }
+    final puText = _formatDecimalForInput(widget.item.prixUnitaire);
+    if (!_prixFocus.hasFocus &&
+        oldWidget.item.prixUnitaire != widget.item.prixUnitaire &&
+        _prixCtrl.text != puText) {
+      _prixCtrl.text = puText;
+    }
+  }
+
+  @override
+  void dispose() {
+    _designationCtrl.dispose();
+    _quantiteCtrl.dispose();
+    _prixCtrl.dispose();
+    _designationFocus.dispose();
+    _quantiteFocus.dispose();
+    _prixFocus.dispose();
+    super.dispose();
+  }
+
+  void _update({
+    String? designation,
+    double? quantite,
+    double? prixUnitaire,
+    String? unite,
+  }) {
+    widget.controller.updateItemInSection(
+      widget.sectionIndex,
+      widget.itemIndex,
+      DevisItem(
+        designation: designation ?? widget.item.designation,
+        quantite: quantite ?? widget.item.quantite,
+        prixUnitaire: prixUnitaire ?? widget.item.prixUnitaire,
+        designationId: widget.item.designationId,
+        unite: unite ?? widget.item.unite,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (widget.editing) {
+      return Container(
+        margin: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    focusNode: _designationFocus,
+                    controller: _designationCtrl,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Désignation',
+                    ),
+                    onChanged: (v) => _update(designation: v),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Terminer',
+                  icon: Icon(
+                    Icons.check_circle,
+                    color: theme.colorScheme.primary,
+                  ),
+                  onPressed: widget.onDone,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                SizedBox(
+                  width: 80,
+                  child: TextField(
+                    focusNode: _quantiteFocus,
+                    controller: _quantiteCtrl,
+                    keyboardType: _kDecimalKeyboard,
+                    inputFormatters: _kDecimalInputFormatters,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Qte',
+                    ),
+                    onChanged: (v) {
+                      final parsed = _parseDecimalInput(v);
+                      if (parsed != null) _update(quantite: parsed);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _UnitChip(
+                  code: widget.item.unite,
+                  onChanged: (v) => _update(unite: v),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 96,
+                  child: TextField(
+                    focusNode: _prixFocus,
+                    controller: _prixCtrl,
+                    keyboardType: _kDecimalKeyboard,
+                    inputFormatters: _kDecimalInputFormatters,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      labelText: 'PU',
+                      suffixText: kCurrencyLabel,
+                    ),
+                    onChanged: (v) {
+                      final parsed = _parseDecimalInput(v);
+                      if (parsed != null) _update(prixUnitaire: parsed);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'PT ${CreateDevisScreen._formatPrice(widget.item.total)} $kCurrencyLabel',
+                    textAlign: TextAlign.right,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    final designation = widget.item.designation.isEmpty
+        ? '-'
+        : widget.item.designation;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onDoubleTap: widget.onDoubleTap,
+        borderRadius: BorderRadius.circular(4),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Row(
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 160),
+                child: Text(
+                  designation,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 56,
+                child: Text(
+                  DevisUnit.formatQuantity(
+                    widget.item.unit,
+                    widget.item.quantite,
+                  ),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 72,
+                child: Text(
+                  CreateDevisScreen._formatPrice(widget.item.prixUnitaire),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 80,
+                child: Text(
+                  CreateDevisScreen._formatPrice(widget.item.total),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Onglets mobile avec FAB : « Ajouter une section » uniquement sur l’onglet Saisie (index 0).
 class _MobileCreateDevisTabLayout extends StatefulWidget {
   final CreateDevisController controller;
@@ -1599,33 +2030,79 @@ class _MobileCreateDevisTabLayoutState
         Positioned(
           right: 16,
           bottom: 16 + bottomInset,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (showAddSection) ...[
-                FloatingActionButton.extended(
-                  heroTag: 'add_section_mobile',
-                  onPressed: () => widget.controller.addSection(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Ajouter une section'),
-                  tooltip: 'Ajouter une section au devis',
-                ),
-                const SizedBox(height: 12),
-              ],
-              FloatingActionButton.extended(
-                heroTag: 'preview_pdf_mobile',
-                onPressed: () =>
-                    _pickAndPreviewDevis(context, widget.controller),
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Aperçu PDF'),
-                tooltip:
-                    'Choisir un modèle puis enregistrer et prévisualiser',
-              ),
-            ],
+          child: _DevisActionFabs(
+            onAddSection: () => widget.controller.addSection(),
+            onPreviewPdf: () =>
+                _pickAndPreviewDevis(context, widget.controller),
+            showAddSection: showAddSection,
+            addSectionHeroTag: 'add_section_mobile',
+            previewHeroTag: 'preview_pdf_mobile',
           ),
         ),
       ],
+    );
+  }
+}
+
+/// FAB toujours lisibles au-dessus de la carte Total (contraste + ombre).
+class _DevisActionFabs extends StatelessWidget {
+  final VoidCallback onAddSection;
+  final VoidCallback onPreviewPdf;
+  final bool showAddSection;
+  final String addSectionHeroTag;
+  final String previewHeroTag;
+
+  const _DevisActionFabs({
+    required this.onAddSection,
+    required this.onPreviewPdf,
+    required this.showAddSection,
+    required this.addSectionHeroTag,
+    required this.previewHeroTag,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (showAddSection) ...[
+            FloatingActionButton.extended(
+              heroTag: addSectionHeroTag,
+              onPressed: onAddSection,
+              backgroundColor: scheme.secondary,
+              foregroundColor: scheme.onSecondary,
+              elevation: 4,
+              icon: const Icon(Icons.add),
+              label: const Text('Ajouter une section'),
+              tooltip: 'Ajouter une section au devis',
+            ),
+            const SizedBox(height: 12),
+          ],
+          FloatingActionButton.extended(
+            heroTag: previewHeroTag,
+            onPressed: onPreviewPdf,
+            backgroundColor: scheme.primary,
+            foregroundColor: scheme.onPrimary,
+            elevation: 6,
+            icon: const Icon(Icons.picture_as_pdf),
+            label: const Text('Aperçu PDF'),
+            tooltip: 'Choisir un modèle puis enregistrer et prévisualiser',
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1956,23 +2433,24 @@ class _SectionCardDevisState extends State<_SectionCardDevis> {
     );
   }
 
-  void _showAddLigneModal(
-    BuildContext context,
-    CreateDevisController c,
-    int sectionIndex,
-  ) {
-    final section = c.sections[sectionIndex];
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (ctx) => _AddLigneModal(
-        sectionIndex: sectionIndex,
-        category: section.titre.trim().isEmpty ? null : section.titre.trim(),
-        onAdded: () => Navigator.pop(ctx),
-      ),
-    );
-  }
+}
+
+void _showAddLigneModal(
+  BuildContext context,
+  CreateDevisController c,
+  int sectionIndex,
+) {
+  final section = c.sections[sectionIndex];
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (ctx) => _AddLigneModal(
+      sectionIndex: sectionIndex,
+      category: section.titre.trim().isEmpty ? null : section.titre.trim(),
+      onAdded: () => Navigator.pop(ctx),
+    ),
+  );
 }
 
 /// Modale pour ajouter une ligne : désignation par catégorie (section), quantité et PU en temps réel.
@@ -2029,10 +2507,9 @@ class _AddLigneModalState extends State<_AddLigneModal> {
     super.dispose();
   }
 
-  double get _quantite =>
-      double.tryParse(_quantiteController.text.replaceAll(',', '.')) ?? 0;
+  double get _quantite => _parseDecimalInput(_quantiteController.text) ?? 0;
   double get _prixUnitaire =>
-      double.tryParse(_prixUnitaireController.text.replaceAll(',', '.')) ?? 0;
+      _parseDecimalInput(_prixUnitaireController.text) ?? 0;
   double get _total => _quantite * _prixUnitaire;
 
   bool _validate() {
@@ -2228,9 +2705,8 @@ class _AddLigneModalState extends State<_AddLigneModal> {
                         hintText: '1',
                         errorText: _errorQuantite,
                       ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
+                      keyboardType: _kDecimalKeyboard,
+                      inputFormatters: _kDecimalInputFormatters,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2252,9 +2728,8 @@ class _AddLigneModalState extends State<_AddLigneModal> {
                   hintText: '0',
                   errorText: _errorPrixUnitaire,
                 ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType: _kDecimalKeyboard,
+                inputFormatters: _kDecimalInputFormatters,
               ),
               const SizedBox(height: 16),
               Card(
@@ -2400,7 +2875,7 @@ class _DraggableItemRow extends StatelessWidget {
   }
 }
 
-class _ItemRow extends StatelessWidget {
+class _ItemRow extends StatefulWidget {
   final CreateDevisController controller;
   final int sectionIndex;
   final int itemIndex;
@@ -2418,11 +2893,84 @@ class _ItemRow extends StatelessWidget {
     this.showDragHandle = true,
   });
 
+  @override
+  State<_ItemRow> createState() => _ItemRowState();
+}
+
+class _ItemRowState extends State<_ItemRow> {
+  late TextEditingController _designationCtrl;
+  late TextEditingController _quantiteCtrl;
+  late TextEditingController _prixCtrl;
+  final _quantiteFocus = FocusNode();
+  final _prixFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _designationCtrl = TextEditingController(text: widget.item.designation);
+    _quantiteCtrl = TextEditingController(
+      text: _formatDecimalForInput(widget.item.quantite),
+    );
+    _prixCtrl = TextEditingController(
+      text: _formatDecimalForInput(widget.item.prixUnitaire),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _ItemRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.designation != widget.item.designation &&
+        _designationCtrl.text != widget.item.designation) {
+      _designationCtrl.text = widget.item.designation;
+    }
+    final qText = _formatDecimalForInput(widget.item.quantite);
+    if (!_quantiteFocus.hasFocus &&
+        oldWidget.item.quantite != widget.item.quantite &&
+        _quantiteCtrl.text != qText) {
+      _quantiteCtrl.text = qText;
+    }
+    final puText = _formatDecimalForInput(widget.item.prixUnitaire);
+    if (!_prixFocus.hasFocus &&
+        oldWidget.item.prixUnitaire != widget.item.prixUnitaire &&
+        _prixCtrl.text != puText) {
+      _prixCtrl.text = puText;
+    }
+  }
+
+  @override
+  void dispose() {
+    _designationCtrl.dispose();
+    _quantiteCtrl.dispose();
+    _prixCtrl.dispose();
+    _quantiteFocus.dispose();
+    _prixFocus.dispose();
+    super.dispose();
+  }
+
+  void _update({
+    String? designation,
+    double? quantite,
+    double? prixUnitaire,
+    String? unite,
+  }) {
+    widget.controller.updateItemInSection(
+      widget.sectionIndex,
+      widget.itemIndex,
+      DevisItem(
+        designation: designation ?? widget.item.designation,
+        quantite: quantite ?? widget.item.quantite,
+        prixUnitaire: prixUnitaire ?? widget.item.prixUnitaire,
+        designationId: widget.item.designationId,
+        unite: unite ?? widget.item.unite,
+      ),
+    );
+  }
+
   Widget _buildActionButtons(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (showDragHandle)
+        if (widget.showDragHandle)
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: Icon(
@@ -2439,7 +2987,10 @@ class _ItemRow extends StatelessWidget {
           ),
           tooltip: 'Supprimer la ligne',
           onPressed: () =>
-              controller.removeItemFromSection(sectionIndex, itemIndex),
+              widget.controller.removeItemFromSection(
+                widget.sectionIndex,
+                widget.itemIndex,
+              ),
         ),
       ],
     );
@@ -2449,7 +3000,7 @@ class _ItemRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: isCompact ? _buildCompactRow(context) : _buildWideRow(context),
+      child: widget.isCompact ? _buildCompactRow(context) : _buildWideRow(context),
     );
   }
 
@@ -2471,60 +3022,52 @@ class _ItemRow extends StatelessWidget {
                       isDense: true,
                       hintText: 'Désignation',
                     ),
-                    controller: TextEditingController(text: item.designation)
-                      ..selection = TextSelection.collapsed(
-                        offset: item.designation.length,
-                      ),
+                    controller: _designationCtrl,
                     onChanged: (v) => _update(designation: v),
                   ),
                 ),
                 const SizedBox(width: 8),
                 SizedBox(
-                  width: 56,
+                  width: 64,
                   child: TextField(
                     decoration: const InputDecoration(
                       isDense: true,
                       hintText: 'Qte',
                     ),
-                    keyboardType: TextInputType.number,
-                    controller:
-                        TextEditingController(text: item.quantite.toString())
-                          ..selection = TextSelection.collapsed(
-                            offset: item.quantite.toString().length,
-                          ),
-                    onChanged: (v) => _update(
-                      quantite: double.tryParse(v.replaceAll(',', '.')) ?? 0,
-                    ),
+                    keyboardType: _kDecimalKeyboard,
+                    inputFormatters: _kDecimalInputFormatters,
+                    focusNode: _quantiteFocus,
+                    controller: _quantiteCtrl,
+                    onChanged: (v) {
+                      final parsed = _parseDecimalInput(v);
+                      if (parsed != null) _update(quantite: parsed);
+                    },
                   ),
                 ),
                 const SizedBox(width: 6),
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: _UnitChip(
-                    code: item.unite,
+                    code: widget.item.unite,
                     onChanged: (v) => _update(unite: v),
                   ),
                 ),
                 const SizedBox(width: 8),
                 SizedBox(
-                  width: 70,
+                  width: 78,
                   child: TextField(
                     decoration: const InputDecoration(
                       isDense: true,
                       hintText: 'PU',
                     ),
-                    keyboardType: TextInputType.number,
-                    controller:
-                        TextEditingController(
-                            text: item.prixUnitaire.toStringAsFixed(0),
-                          )
-                          ..selection = TextSelection.collapsed(
-                            offset: item.prixUnitaire.toStringAsFixed(0).length,
-                          ),
-                    onChanged: (v) => _update(
-                      prixUnitaire:
-                          double.tryParse(v.replaceAll(',', '.')) ?? 0,
-                    ),
+                    keyboardType: _kDecimalKeyboard,
+                    inputFormatters: _kDecimalInputFormatters,
+                    focusNode: _prixFocus,
+                    controller: _prixCtrl,
+                    onChanged: (v) {
+                      final parsed = _parseDecimalInput(v);
+                      if (parsed != null) _update(prixUnitaire: parsed);
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -2533,7 +3076,7 @@ class _ItemRow extends StatelessWidget {
                   child: SizedBox(
                     width: 64,
                     child: Text(
-                      '${item.total.toStringAsFixed(0)} $kCurrencyLabel',
+                      '${widget.item.total.toStringAsFixed(0)} $kCurrencyLabel',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -2558,58 +3101,53 @@ class _ItemRow extends StatelessWidget {
               isDense: true,
               hintText: 'Désignation',
             ),
-            controller: TextEditingController(text: item.designation)
-              ..selection = TextSelection.collapsed(
-                offset: item.designation.length,
-              ),
+            controller: _designationCtrl,
             onChanged: (v) => _update(designation: v),
           ),
         ),
         const SizedBox(width: 8),
         SizedBox(
-          width: 70,
+          width: 78,
           child: TextField(
             decoration: const InputDecoration(isDense: true, hintText: 'Qte'),
-            keyboardType: TextInputType.number,
-            controller: TextEditingController(text: item.quantite.toString())
-              ..selection = TextSelection.collapsed(
-                offset: item.quantite.toString().length,
-              ),
-            onChanged: (v) =>
-                _update(quantite: double.tryParse(v.replaceAll(',', '.')) ?? 0),
+            keyboardType: _kDecimalKeyboard,
+            inputFormatters: _kDecimalInputFormatters,
+            focusNode: _quantiteFocus,
+            controller: _quantiteCtrl,
+            onChanged: (v) {
+              final parsed = _parseDecimalInput(v);
+              if (parsed != null) _update(quantite: parsed);
+            },
           ),
         ),
         const SizedBox(width: 6),
         Padding(
           padding: const EdgeInsets.only(top: 4),
           child: _UnitChip(
-            code: item.unite,
+            code: widget.item.unite,
             onChanged: (v) => _update(unite: v),
           ),
         ),
         const SizedBox(width: 8),
         SizedBox(
-          width: 80,
+          width: 88,
           child: TextField(
             decoration: const InputDecoration(isDense: true, hintText: 'PU'),
-            keyboardType: TextInputType.number,
-            controller:
-                TextEditingController(
-                    text: item.prixUnitaire.toStringAsFixed(0),
-                  )
-                  ..selection = TextSelection.collapsed(
-                    offset: item.prixUnitaire.toStringAsFixed(0).length,
-                  ),
-            onChanged: (v) => _update(
-              prixUnitaire: double.tryParse(v.replaceAll(',', '.')) ?? 0,
-            ),
+            keyboardType: _kDecimalKeyboard,
+            inputFormatters: _kDecimalInputFormatters,
+            focusNode: _prixFocus,
+            controller: _prixCtrl,
+            onChanged: (v) {
+              final parsed = _parseDecimalInput(v);
+              if (parsed != null) _update(prixUnitaire: parsed);
+            },
           ),
         ),
         const SizedBox(width: 8),
         Padding(
           padding: const EdgeInsets.only(top: 12),
           child: Text(
-            '${item.total.toStringAsFixed(0)} $kCurrencyLabel',
+            '${widget.item.total.toStringAsFixed(0)} $kCurrencyLabel',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
@@ -2617,28 +3155,9 @@ class _ItemRow extends StatelessWidget {
       ],
     );
   }
-
-  void _update({
-    String? designation,
-    double? quantite,
-    double? prixUnitaire,
-    String? unite,
-  }) {
-    controller.updateItemInSection(
-      sectionIndex,
-      itemIndex,
-      DevisItem(
-        designation: designation ?? item.designation,
-        quantite: quantite ?? item.quantite,
-        prixUnitaire: prixUnitaire ?? item.prixUnitaire,
-        designationId: item.designationId,
-        unite: unite ?? item.unite,
-      ),
-    );
-  }
 }
 
-/// Sélecteur d'unité compact — affiché comme une puce cliquable avec le symbole
+/// Sélecteur d'unité compact
 /// (`m`, `kg`, `m²`, …). Au tap : menu déroulant groupé par catégorie.
 ///
 /// Utilisé dans [_ItemRow] et la modale d'ajout pour ne pas alourdir l'UI.
@@ -2749,6 +3268,7 @@ Future<void> _pickAndPreviewDevis(
   final template = await CoverPickerSheet.show(
     context,
     confirmLabel: 'Aperçu PDF',
+    previewData: CoverPreviewData.fromDevis(c.buildCurrentDevis()),
   );
   if (template == null) return;
   try {

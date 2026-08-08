@@ -12,6 +12,7 @@ import '../models/facture_status.dart';
 import '../models/payment.dart';
 import '../models/section_devis.dart';
 import '../utils/app_currency.dart';
+import 'pdf_contract_page.dart';
 
 /// Génération du PDF **Facture** — design pro, sobre, distinct du devis.
 ///
@@ -39,7 +40,8 @@ class FacturePdfService {
 
   static Future<void> preview(Facture f) async {
     final doc = await buildDocument(f);
-    await Printing.layoutPdf(onLayout: (format) async => doc.save());
+    final bytes = await doc.save();
+    await Printing.layoutPdf(onLayout: (format) async => bytes);
   }
 
   static Future<void> share(Facture f) async {
@@ -86,7 +88,40 @@ class FacturePdfService {
         ],
       ),
     );
+
+    doc.addPage(
+      pw.MultiPage(
+        pageTheme: pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.fromLTRB(28, 28, 28, 28),
+        ),
+        build: (context) => _buildContractWidgets(f),
+      ),
+    );
     return doc;
+  }
+
+  static List<pw.Widget> _buildContractWidgets(Facture f) {
+    final client = f.client;
+    final settings = HiveStorage.getCompanySettings();
+    final adresseEntreprise = (f.adresseEntreprise ?? '').trim().isNotEmpty
+        ? f.adresseEntreprise!.trim()
+        : (settings['adresse'] ?? '').toString().trim();
+    return PdfContractPage.buildWidgets(
+      documentLabel: 'FACTURE',
+      numero: f.numero,
+      date: f.date,
+      companyName: _companyName(f),
+      companyAdresse: adresseEntreprise,
+      companyTel: _companyTel(f),
+      clientNom: (client?.nom ?? '').trim(),
+      clientSociete: (client?.societe ?? '').trim(),
+      clientAdresse: (client?.adresse ?? '').trim(),
+      clientTel: (client?.telephone ?? '').trim(),
+      objet: f.titreFacture,
+      totalLabel: _money(f.total),
+      validUntil: f.dueDate,
+    );
   }
 
   // ========================================================================
@@ -216,7 +251,7 @@ class FacturePdfService {
       if (client?.telephone.trim().isNotEmpty ?? false) 'Tél. ${client!.telephone.trim()}',
       if (client?.email.trim().isNotEmpty ?? false) client!.email.trim(),
     ];
-    final nom = (client?.nom.trim() ?? '').isEmpty ? '—' : client!.nom.trim();
+    final nom = (client?.nom.trim() ?? '').isEmpty ? '-' : client!.nom.trim();
 
     return pw.Container(
       padding: const pw.EdgeInsets.all(14),
@@ -656,7 +691,7 @@ class FacturePdfService {
                 children: [
                   pw.Expanded(flex: 3, child: pw.Text(_dateFr(p.date), style: _font(8.6, color: _ink))),
                   pw.Expanded(flex: 3, child: pw.Text(p.method.label, style: _font(8.6, color: _ink))),
-                  pw.Expanded(flex: 4, child: pw.Text(p.reference.isEmpty ? '—' : p.reference, style: _font(8.6, color: _inkMuted))),
+                  pw.Expanded(flex: 4, child: pw.Text(p.reference.isEmpty ? '-' : p.reference, style: _font(8.6, color: _inkMuted))),
                   pw.Expanded(
                     flex: 3,
                     child: pw.Text(
@@ -822,7 +857,7 @@ class FacturePdfService {
       }
       digits = buf.toString();
     }
-    return '$digits $kCurrencyLabel';
+    return '$digits $kCurrencyPdfLabel';
   }
 
   // ========================================================================
@@ -841,7 +876,8 @@ class FacturePdfService {
     final fromFacture = (f.telEntreprise ?? '').trim();
     if (fromFacture.isNotEmpty) return fromFacture;
     final fromSettings = HiveStorage.getCompanySettings();
-    return (fromSettings['tel'] ?? '').trim();
+    final tel = (fromSettings['telephone'] ?? fromSettings['tel'] ?? '').trim();
+    return tel;
   }
 
   static String _companyTag() {
@@ -865,8 +901,9 @@ class FacturePdfService {
           return pw.MemoryImage(bytes);
         }
       }
+      final settings = HiveStorage.getCompanySettings();
       final settingsLogo =
-          (HiveStorage.getCompanySettings()['logo'] ?? '').trim();
+          (settings['logoPath'] ?? settings['logo'] ?? '').trim();
       if (settingsLogo.isNotEmpty) {
         final file = File(settingsLogo);
         if (await file.exists()) {

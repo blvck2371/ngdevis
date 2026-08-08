@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/controllers/company_controller.dart';
 import '../core/theme/app_theme.dart';
+import '../core/utils/app_currency.dart';
 import '../core/utils/logo_file_helper.dart';
 import '../core/utils/app_routes.dart';
 import '../core/utils/responsive.dart';
@@ -147,6 +148,23 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 SizedBox(height: r.sectionSpacing),
                 Text(
+                  'Devise',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'S\'applique à toute l\'application : saisie, aperçu, historique, PDF et contrat.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                const _CurrencyPicker(),
+                SizedBox(height: r.sectionSpacing),
+                Text(
                   'Documents',
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: Theme.of(context).colorScheme.primary,
@@ -202,6 +220,98 @@ class SettingsScreen extends StatelessWidget {
       ),
       bottomNavigationBar: const AppBottomNav(active: AppTab.settings),
     );
+  }
+}
+
+class _CurrencyPicker extends StatelessWidget {
+  const _CurrencyPicker();
+
+  @override
+  Widget build(BuildContext context) {
+    final currency = Get.find<CurrencyController>();
+    final scheme = Theme.of(context).colorScheme;
+    return Obx(() {
+      final selected = currency.code.value;
+      return Column(
+        children: AppCurrencyCode.values.map((c) {
+          final isSelected = c == selected;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: isSelected
+                  ? scheme.primaryContainer
+                  : scheme.surface,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () async {
+                  await currency.setCurrency(c);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Devise définie : ${c.fullName}'),
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isSelected
+                          ? scheme.primary
+                          : scheme.outlineVariant,
+                      width: isSelected ? 1.4 : 0.7,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: scheme.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          c.label,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: scheme.primary,
+                            fontSize: c == AppCurrencyCode.eur ? 18 : 13,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          c.fullName,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      if (isSelected)
+                        Icon(Icons.check_circle, color: scheme.primary)
+                      else
+                        Icon(
+                          Icons.circle_outlined,
+                          color: scheme.outline,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      );
+    });
   }
 }
 

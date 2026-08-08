@@ -135,7 +135,7 @@ class _EditDesignationDialogState extends State<_EditDesignationDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _puC,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Prix unitaire ($kCurrencyLabel)',
                 hintText: 'Ex: 6000',
               ),

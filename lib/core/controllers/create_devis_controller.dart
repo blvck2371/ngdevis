@@ -2,6 +2,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 import '../models/devis.dart';
+import '../models/devis_status.dart';
 import '../models/facture.dart';
 import '../models/client.dart';
 import '../models/devis_item.dart';
@@ -72,14 +73,42 @@ class CreateDevisController extends GetxController {
   /// Tant que l’entrée n’existe pas dans Hive (`getById` null), c’est elle qui prime.
   DateTime _documentDate = DateTime.now();
 
-  DateTime _effectiveDocumentDate() {
-    final id = editingDevisId;
-    if (id != null && id.isNotEmpty) {
-      final stored = Get.find<DevisController>().getById(id);
-      if (stored != null) return stored.date;
-    }
-    return _documentDate;
+  /// Cycle de vie commercial — conservé à l’édition (évite reset brouillon à chaque save).
+  DevisStatus _status = DevisStatus.brouillon;
+  DateTime? _validUntil;
+  DateTime? _sentAt;
+  DateTime? _acceptedAt;
+  DateTime? _refusedAt;
+  DateTime? _convertedAt;
+  String? _convertedFactureId;
+  String? _internalNotes;
+  String? _clientId;
+
+  void _resetLifecycleFields() {
+    _status = DevisStatus.brouillon;
+    _validUntil = null;
+    _sentAt = null;
+    _acceptedAt = null;
+    _refusedAt = null;
+    _convertedAt = null;
+    _convertedFactureId = null;
+    _internalNotes = null;
+    _clientId = null;
   }
+
+  void _copyLifecycleFrom(Devis d) {
+    _status = d.status;
+    _validUntil = d.validUntil;
+    _sentAt = d.sentAt;
+    _acceptedAt = d.acceptedAt;
+    _refusedAt = d.refusedAt;
+    _convertedAt = d.convertedAt;
+    _convertedFactureId = d.convertedFactureId;
+    _internalNotes = d.internalNotes;
+    _clientId = d.client?.id;
+  }
+
+  DateTime _effectiveDocumentDate() => _documentDate;
 
   /// Si `true`, le document en cours sera enregistré **directement comme facture**.
   /// Le devis intermédiaire est alors marqué `accepté` puis converti.
@@ -108,10 +137,11 @@ class CreateDevisController extends GetxController {
   void initForNewWithCategories(List<String> categories) {
     editingDevisId = null;
     _documentDate = DateTime.now();
+    _resetLifecycleFields();
     asInvoice.value = false;
     titreDevis.value = '';
     noteNb.value = 'nous travaillons selon la norme DTU 60.1';
-    numero.value = Get.find<DevisController>().nextNumero();
+    numero.value = Get.find<DevisController>().previewNextNumeroPro();
     _loadCompanyDefaults();
     clientNom.value = '';
     clientSociete.value = '';
@@ -152,6 +182,7 @@ class CreateDevisController extends GetxController {
   void initForEdit(Devis d) {
     editingDevisId = d.id;
     _documentDate = d.date;
+    _copyLifecycleFrom(d);
     titreDevis.value = d.titreDevis ?? '';
     noteNb.value = d.noteNb ?? '';
     numero.value = d.numero;
@@ -367,27 +398,24 @@ class CreateDevisController extends GetxController {
         clientEmail.value.trim().isNotEmpty;
   }
 
-  /// Enregistre le devis et met à jour les paramètres entreprise. Retourne null si le devis est vide (aucune ligne).
-  Future<Devis?> save() async {
-    final hasAnyLine = sections.any((s) => s.items.isNotEmpty);
-    if (!hasAnyLine) return null;
+  Client? _buildClient() {
+    if (!_hasClientInfo()) return null;
+    return Client(
+      id: _clientId ?? const Uuid().v4(),
+      nom: clientNom.value.trim(),
+      societe: clientSociete.value.trim(),
+      telephone: clientTel.value.trim(),
+      adresse: clientAdresse.value.trim(),
+      email: clientEmail.value.trim(),
+    );
+  }
 
-    final client = _hasClientInfo()
-        ? Client(
-            id: const Uuid().v4(),
-            nom: clientNom.value.trim(),
-            societe: clientSociete.value.trim(),
-            telephone: clientTel.value.trim(),
-            adresse: clientAdresse.value.trim(),
-            email: clientEmail.value.trim(),
-          )
-        : null;
-
-    final devis = Devis(
-      id: editingDevisId ?? const Uuid().v4(),
-      numero: numero.value.trim().isEmpty ? Get.find<DevisController>().nextNumero() : numero.value.trim(),
+  Devis _assembleDevis({required String id, required String numeroVal}) {
+    return Devis(
+      id: id,
+      numero: numeroVal,
       date: _effectiveDocumentDate(),
-      client: client,
+      client: _buildClient(),
       sections: sections.toList(),
       titreDevis: titreDevis.value.trim().isEmpty ? null : titreDevis.value.trim(),
       noteNb: noteNb.value.trim().isEmpty ? null : noteNb.value.trim(),
@@ -398,9 +426,66 @@ class CreateDevisController extends GetxController {
       deletedHistory: _encodeDeletedEntries(),
       useManualMainOeuvre: useManualMainOeuvre.value,
       manualMainOeuvre: manualMainOeuvre.value,
+      status: _status,
+      validUntil: _validUntil,
+      sentAt: _sentAt,
+      acceptedAt: _acceptedAt,
+      refusedAt: _refusedAt,
+      convertedAt: _convertedAt,
+      convertedFactureId: _convertedFactureId,
+      internalNotes: _internalNotes,
+    );
+  }
+
+  String _resolveNumero() {
+    return numero.value.trim().isEmpty
+        ? Get.find<DevisController>().previewNextNumeroPro()
+        : numero.value.trim();
+  }
+
+  bool _isPersistedDevis() {
+    final id = editingDevisId;
+    if (id == null || id.isEmpty) return false;
+    return Get.find<DevisController>().getById(id) != null;
+  }
+
+  /// Vérifie les champs obligatoires avant enregistrement.
+  String? validateForSave() {
+    if (nomEntreprise.value.trim().isEmpty) {
+      return 'Renseignez le nom de l\'entreprise (onglet Entreprise).';
+    }
+    if (!_hasClientInfo()) {
+      return 'Renseignez au moins le nom du client.';
+    }
+    return null;
+  }
+
+  Future<String> _numeroForSave() async {
+    if (_isPersistedDevis()) return _resolveNumero();
+    final committed = await Get.find<DevisController>().commitNextNumeroPro();
+    numero.value = committed;
+    return committed;
+  }
+
+  /// Enregistre le devis et met à jour les paramètres entreprise. Retourne null si le devis est vide (aucune ligne).
+  Future<Devis?> save() async {
+    final hasAnyLine = sections.any((s) => s.items.isNotEmpty);
+    if (!hasAnyLine) return null;
+
+    final validationError = validateForSave();
+    if (validationError != null) {
+      Get.snackbar('Enregistrement impossible', validationError);
+      return null;
+    }
+
+    final devis = _assembleDevis(
+      id: editingDevisId ?? const Uuid().v4(),
+      numeroVal: await _numeroForSave(),
     );
 
     await Get.find<DevisController>().saveDevis(devis);
+    editingDevisId = devis.id;
+    _clientId = devis.client?.id;
 
     // Mettre à jour les paramètres entreprise pour la prochaine fois
     final company = Get.find<CompanyController>();
@@ -443,31 +528,9 @@ class CreateDevisController extends GetxController {
 
   /// Construit le devis actuel à partir du formulaire (pour aperçu PDF sans sauvegarde).
   Devis buildCurrentDevis() {
-    final client = _hasClientInfo()
-        ? Client(
-            id: const Uuid().v4(),
-            nom: clientNom.value.trim(),
-            societe: clientSociete.value.trim(),
-            telephone: clientTel.value.trim(),
-            adresse: clientAdresse.value.trim(),
-            email: clientEmail.value.trim(),
-          )
-        : null;
-    return Devis(
+    return _assembleDevis(
       id: editingDevisId ?? const Uuid().v4(),
-      numero: numero.value.trim().isEmpty ? Get.find<DevisController>().nextNumero() : numero.value.trim(),
-      date: _effectiveDocumentDate(),
-      client: client,
-      sections: sections.toList(),
-      titreDevis: titreDevis.value.trim().isEmpty ? null : titreDevis.value.trim(),
-      noteNb: noteNb.value.trim().isEmpty ? null : noteNb.value.trim(),
-      logoPath: logoPath.value.trim().isEmpty ? null : logoPath.value.trim(),
-      nomEntreprise: nomEntreprise.value.trim().isEmpty ? null : nomEntreprise.value.trim(),
-      telEntreprise: telEntreprise.value.trim().isEmpty ? null : telEntreprise.value.trim(),
-      adresseEntreprise: adresseEntreprise.value.trim().isEmpty ? null : adresseEntreprise.value.trim(),
-      deletedHistory: _encodeDeletedEntries(),
-      useManualMainOeuvre: useManualMainOeuvre.value,
-      manualMainOeuvre: manualMainOeuvre.value,
+      numeroVal: _resolveNumero(),
     );
   }
 
@@ -477,35 +540,12 @@ class CreateDevisController extends GetxController {
     final hasAnyLine = sections.any((s) => s.items.isNotEmpty);
     if (!hasAnyLine && editingDevisId == null) return;
 
-    final client = _hasClientInfo()
-        ? Client(
-            id: const Uuid().v4(),
-            nom: clientNom.value.trim(),
-            societe: clientSociete.value.trim(),
-            telephone: clientTel.value.trim(),
-            adresse: clientAdresse.value.trim(),
-            email: clientEmail.value.trim(),
-          )
-        : null;
     final id = editingDevisId ?? const Uuid().v4();
-    final devis = Devis(
-      id: id,
-      numero: numero.value.trim().isEmpty ? Get.find<DevisController>().nextNumero() : numero.value.trim(),
-      date: _effectiveDocumentDate(),
-      client: client,
-      sections: sections.toList(),
-      titreDevis: titreDevis.value.trim().isEmpty ? null : titreDevis.value.trim(),
-      noteNb: noteNb.value.trim().isEmpty ? null : noteNb.value.trim(),
-      logoPath: logoPath.value.trim().isEmpty ? null : logoPath.value.trim(),
-      nomEntreprise: nomEntreprise.value.trim().isEmpty ? null : nomEntreprise.value.trim(),
-      telEntreprise: telEntreprise.value.trim().isEmpty ? null : telEntreprise.value.trim(),
-      adresseEntreprise: adresseEntreprise.value.trim().isEmpty ? null : adresseEntreprise.value.trim(),
-      deletedHistory: _encodeDeletedEntries(),
-      useManualMainOeuvre: useManualMainOeuvre.value,
-      manualMainOeuvre: manualMainOeuvre.value,
-    );
+    final numeroVal = await _numeroForSave();
+    final devis = _assembleDevis(id: id, numeroVal: numeroVal);
     await Get.find<DevisController>().saveDevis(devis);
     editingDevisId ??= devis.id;
+    if (devis.client != null) _clientId = devis.client!.id;
   }
 
   void _pushDeletedEntry(DeletedEntry entry) {

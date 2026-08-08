@@ -8,6 +8,7 @@ import 'core/controllers/company_controller.dart';
 import 'core/controllers/facture_controller.dart';
 import 'core/controllers/theme_controller.dart';
 import 'core/theme/app_theme.dart';
+import 'core/utils/app_currency.dart';
 import 'core/utils/app_routes.dart';
 import 'screens/splash_screen.dart';
 import 'screens/onboarding_screen.dart';
@@ -45,6 +46,7 @@ void main() async {
   );
 
   Get.put(ThemeController());
+  Get.put(CurrencyController());
   Get.put(DesignationController());
   // ⚠️ ORDRE IMPORTANT : FactureController doit exister AVANT DevisController
   // car `DevisController.convertToFacture` fait un `Get.find<FactureController>()`.

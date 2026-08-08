@@ -1607,6 +1607,27 @@ class _DashboardSheets {
     try {
       final devis = await JsonService.pickDevisJsonFile();
       if (devis == null) return;
+      if (!context.mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Importer ce devis ?'),
+          content: Text(
+            'Ouvrir le devis n° ${devis.numero} dans l’éditeur ?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Importer'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
       Get.toNamed(AppRoutes.createDevis, arguments: devis);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

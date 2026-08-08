@@ -30,6 +30,8 @@ class _FactureDetailScreenState extends State<FactureDetailScreen> {
     final args = Get.arguments;
     if (args is Map && args['factureId'] is String) {
       _factureId = args['factureId'] as String;
+    } else if (args is String && args.trim().isNotEmpty) {
+      _factureId = args.trim();
     }
   }
 
@@ -884,9 +886,9 @@ class _AddPaymentSheetState extends State<_AddPaymentSheet> {
             TextField(
               controller: _amountCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Montant ($kCurrencyLabel)',
-                prefixIcon: Icon(Icons.attach_money_rounded),
+                prefixIcon: const Icon(Icons.attach_money_rounded),
               ),
             ),
             const SizedBox(height: 12),

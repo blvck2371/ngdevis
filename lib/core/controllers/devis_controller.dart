@@ -83,7 +83,7 @@ class DevisController extends GetxController {
   Future<void> duplicateDevis(Devis devis) async {
     final copy = Devis(
       id: const Uuid().v4(),
-      numero: nextNumero(),
+      numero: await commitNextNumeroPro(),
       date: DateTime.now(),
       client: devis.client != null
           ? Client(
@@ -201,6 +201,12 @@ class DevisController extends GetxController {
     final d = HiveStorage.getDevisById(devisId);
     if (d == null) {
       throw StateError('Devis introuvable : $devisId');
+    }
+    if (d.status == DevisStatus.converti) {
+      throw StateError(
+        'Ce devis a déjà été converti en facture'
+        '${d.convertedFactureId != null ? ' (${d.convertedFactureId})' : ''}.',
+      );
     }
     final factureCtrl = Get.find<FactureController>();
     final numero = await factureCtrl.nextNumero();

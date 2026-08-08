@@ -6,6 +6,8 @@ import '../models/facture_status.dart';
 import '../models/payment.dart';
 import '../services/facture_pdf_service.dart';
 import '../services/numbering_service.dart';
+import 'devis_controller.dart';
+import '../models/devis_status.dart';
 
 /// Contrôleur GetX des factures : CRUD, paiements, transitions de statut.
 class FactureController extends GetxController {
@@ -60,6 +62,20 @@ class FactureController extends GetxController {
   }
 
   Future<void> deleteFacture(String id) async {
+    final devisList = HiveStorage.getDevisList();
+    for (final d in devisList) {
+      if (d.convertedFactureId == id) {
+        d.convertedFactureId = null;
+        d.convertedAt = null;
+        if (d.status == DevisStatus.converti) {
+          d.status = DevisStatus.accepte;
+        }
+        await HiveStorage.updateDevis(d.id, d);
+      }
+    }
+    if (Get.isRegistered<DevisController>()) {
+      Get.find<DevisController>().load();
+    }
     await HiveStorage.removeFacture(id);
     load();
   }

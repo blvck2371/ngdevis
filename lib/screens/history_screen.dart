@@ -707,6 +707,7 @@ class _DevisTile extends StatelessWidget {
           final template = await CoverPickerSheet.show(
             context,
             confirmLabel: 'Aperçu PDF',
+            previewData: CoverPreviewData.fromDevis(devis),
           );
           if (template != null) {
             await dc.previewPdf(devis, template: template);
@@ -718,6 +719,7 @@ class _DevisTile extends StatelessWidget {
           final template = await CoverPickerSheet.show(
             context,
             confirmLabel: 'Partager le PDF',
+            previewData: CoverPreviewData.fromDevis(devis),
           );
           if (template != null) {
             await dc.sharePdf(devis, template: template);

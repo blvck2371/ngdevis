@@ -17,6 +17,7 @@ class HiveKeys {
   static const themeMode = 'ui_theme_mode';
   static const onboardingSeen = 'ui_onboarding_seen';
   static const coverTemplateId = 'pdf_cover_template_id';
+  static const currencyCode = 'app_currency_code';
 
   /// Numérotation (préfixes, reset annuel, padding).
   static const numberingConfig = 'numbering_config';
@@ -202,6 +203,17 @@ class HiveStorage {
 
   static Future<void> saveCompanySettings(Map<String, String> map) async {
     await _prefsBox?.put(HiveKeys.company, map);
+  }
+
+  // ——— Devise ——————————————————————————————————————————————————————
+  static String getCurrencyCode() {
+    final raw = _prefsBox?.get(HiveKeys.currencyCode);
+    if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+    return 'FCFA';
+  }
+
+  static Future<void> setCurrencyCode(String code) async {
+    await _prefsBox?.put(HiveKeys.currencyCode, code.trim());
   }
 
   // ——— Catégories ——————————————————————————————————————————————————

@@ -33,6 +33,12 @@ enum CoverTemplate {
 
   /// Minimaliste noir & or : coins noirs, lignes or fines, beaucoup d'air.
   minimalistGold,
+
+  /// Couverture vectorielle — ardoise & teal, typographie éditoriale (design NG).
+  studioSlate,
+
+  /// Couverture vectorielle — émeraude profond & or, prestige artisan / BTP haut de gamme.
+  prestigeEmerald,
 }
 
 extension CoverTemplateMeta on CoverTemplate {
@@ -53,6 +59,10 @@ extension CoverTemplateMeta on CoverTemplate {
         return 'Navy Arabesque';
       case CoverTemplate.minimalistGold:
         return 'Minimaliste Or';
+      case CoverTemplate.studioSlate:
+        return 'Studio Ardoise';
+      case CoverTemplate.prestigeEmerald:
+        return 'Prestige Émeraude';
     }
   }
 
@@ -73,8 +83,17 @@ extension CoverTemplateMeta on CoverTemplate {
         return 'Courbes navy, arabesques or, silhouette de mosquée — premium et solennel.';
       case CoverTemplate.minimalistGold:
         return 'Très peu d\'ornements, beaucoup d\'air — pour les designs ultra‑modernes.';
+      case CoverTemplate.studioSlate:
+        return 'Design épuré ardoise & teal — typographie nette, zones client structurées.';
+      case CoverTemplate.prestigeEmerald:
+        return 'Émeraude profond et or discret — élégance premium pour devis haut de gamme.';
     }
   }
+
+  /// Modèles dessinés entièrement en vectoriel (pas de PNG de fond).
+  bool get isVectorCover =>
+      this == CoverTemplate.studioSlate ||
+      this == CoverTemplate.prestigeEmerald;
 
   /// Chemin de l'asset PNG plein page (null pour le modèle classique
   /// qui est dessiné en code).
@@ -94,18 +113,26 @@ extension CoverTemplateMeta on CoverTemplate {
         return 'assets/267d2250-8a3e-45ab-8334-13e0f24ebf8b.png';
       case CoverTemplate.minimalistGold:
         return 'assets/0d1b09be-94ec-4c0b-a7c4-5f83e9125441.png';
+      case CoverTemplate.studioSlate:
+      case CoverTemplate.prestigeEmerald:
+        return null;
     }
   }
 
   /// Image de prévisualisation côté Flutter (sans branding utilisateur).
   /// Pour le moment on réutilise le PNG plein page ; le modèle "classic"
   /// utilise sa propre image historique.
-  String get thumbnailAsset {
+  String? get thumbnailAsset {
     if (this == CoverTemplate.classic) {
       return 'assets/e175b1a5-7eef-4403-a781-493ba464ba89.png';
     }
+    if (isVectorCover) return null;
     return assetPath!;
   }
+
+  /// Gabarit designer (px) — tous les PNG couverture sont calés sur l’A4.
+  static const double designWidth = 1055;
+  static const double designHeight = 1491;
 
   /// Couleur dominante utilisée pour les badges dans le picker.
   /// Codée en `int` pour ne pas imposer de dépendance Flutter dans ce fichier.
@@ -125,6 +152,10 @@ extension CoverTemplateMeta on CoverTemplate {
         return 0xFF1A2F66;
       case CoverTemplate.minimalistGold:
         return 0xFFB7892F;
+      case CoverTemplate.studioSlate:
+        return 0xFF00897B;
+      case CoverTemplate.prestigeEmerald:
+        return 0xFF0B4F4A;
     }
   }
 }

@@ -12,6 +12,7 @@ import '../models/section_devis.dart';
 import '../utils/app_currency.dart';
 import 'cover/cover_renderer.dart';
 import 'cover/cover_template.dart';
+import 'pdf_contract_page.dart';
 
 /// Génération du PDF du devis, calquée sur le modèle DEVIS ESTIMATIFS (NG, titre, NB, sections, totaux).
 class PdfService {
@@ -109,7 +110,37 @@ class PdfService {
         ],
       ),
     );
+
+    // Dernière(s) page(s) : contrat d'acceptation + zones de signature.
+    doc.addPage(
+      pw.MultiPage(
+        pageTheme: pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.fromLTRB(28, 28, 28, 28),
+        ),
+        build: (context) => _buildContractWidgets(devis),
+      ),
+    );
     return doc;
+  }
+
+  static List<pw.Widget> _buildContractWidgets(Devis devis) {
+    final client = devis.client;
+    return PdfContractPage.buildWidgets(
+      documentLabel: 'DEVIS',
+      numero: devis.numero,
+      date: devis.date,
+      companyName: _headerCompanyName(devis, hasLogo: false),
+      companyAdresse: _headerAdresse(devis),
+      companyTel: _headerTel(devis),
+      clientNom: (client?.nom ?? '').trim(),
+      clientSociete: (client?.societe ?? '').trim(),
+      clientAdresse: (client?.adresse ?? '').trim(),
+      clientTel: (client?.telephone ?? '').trim(),
+      objet: devis.titreDevis,
+      totalLabel: _formatPrice(devis.total),
+      validUntil: devis.validUntil,
+    );
   }
 
   /// Filigrane « NGDEVIS » en diagonale sur chaque page (arrière-plan, faible opacité).
@@ -476,7 +507,26 @@ class PdfService {
 
   static String _coverClientValue(String? raw) {
     final t = raw?.trim() ?? '';
-    return t.isEmpty ? '—' : t;
+    return t.isEmpty ? '-' : _pdfSafeText(t);
+  }
+
+  /// Helvetica PDF = Latin-1 : remplace tirets longs / apostrophes typographiques.
+  static String _pdfSafeText(String input) {
+    return input
+        .replaceAll('’', "'")
+        .replaceAll('‘', "'")
+        .replaceAll('“', '"')
+        .replaceAll('”', '"')
+        .replaceAll('–', '-')
+        .replaceAll('—', '-')
+        .replaceAll('…', '...')
+        .replaceAll('·', '.')
+        .replaceAll('«', '"')
+        .replaceAll('»', '"')
+        .replaceAllMapped(
+          RegExp(r'[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]'),
+          (_) => '',
+        );
   }
 
   static pw.Widget _coverNoteRichText(String noteRaw) {
@@ -541,7 +591,7 @@ class PdfService {
     const labelW = 86.0;
     final valueW = totalW - iconW - gap - labelW;
     var display = _coverClientValue(value);
-    if (uppercaseValue && display != '—') {
+    if (uppercaseValue && display != '-') {
       display = display.toUpperCase();
     }
     return pw.Padding(
@@ -925,7 +975,7 @@ class PdfService {
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
                   pw.Text(
-                    'N° ${devis.numero}',
+                    'N° ${_pdfSafeText(devis.numero)}',
                     style: pw.TextStyle(
                       fontSize: 10,
                       fontWeight: pw.FontWeight.bold,
@@ -945,7 +995,7 @@ class PdfService {
               devis.titreDevis!.trim().isNotEmpty) ...[
             pw.SizedBox(height: 10),
             pw.Text(
-              devis.titreDevis!.trim(),
+              _pdfSafeText(devis.titreDevis!.trim()),
               style: pw.TextStyle(
                 fontSize: 10,
                 fontWeight: pw.FontWeight.bold,
@@ -956,7 +1006,7 @@ class PdfService {
           if (devis.noteNb != null && devis.noteNb!.trim().isNotEmpty) ...[
             pw.SizedBox(height: 6),
             pw.Text(
-              'NB — ${devis.noteNb!.trim()}',
+              'NB : ${_pdfSafeText(devis.noteNb!.trim())}',
               style: const pw.TextStyle(fontSize: 8.5, color: _inkMuted),
             ),
           ],
@@ -1136,7 +1186,7 @@ class PdfService {
 
   static String _formatPrice(double value) {
     final s = value.toStringAsFixed(0);
-    if (s.length <= 3) return '$s $kCurrencyLabel';
+    if (s.length <= 3) return '$s $kCurrencyPdfLabel';
     final buf = StringBuffer();
     var i = s.length % 3;
     if (i == 0) i = 3;
@@ -1144,7 +1194,7 @@ class PdfService {
     for (; i < s.length; i += 3) {
       buf.write(' ${s.substring(i, i + 3)}');
     }
-    return '${buf.toString()} $kCurrencyLabel';
+    return '${buf.toString()} $kCurrencyPdfLabel';
   }
 
   /// Nom affiché sous le logo (ou seul si pas de logo). Pas de texte de secours sous le logo seul.
@@ -1204,12 +1254,9 @@ class PdfService {
     Devis devis, {
     CoverTemplate template = CoverTemplate.classic,
   }) async {
-    try {
-      final doc = await buildDocument(devis, template: template);
-      await Printing.layoutPdf(onLayout: (_) async => doc.save());
-    } catch (e) {
-      throw Exception('Erreur lors de la génération du PDF: ${e.toString()}');
-    }
+    final doc = await buildDocument(devis, template: template);
+    final bytes = await doc.save();
+    await Printing.layoutPdf(onLayout: (_) async => bytes);
   }
 
   /// Export PDF vers fichier.
